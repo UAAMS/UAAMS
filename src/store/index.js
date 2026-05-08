@@ -5,6 +5,7 @@ import adminUniversityManagementReducer from "./slices/adminUniversityManagement
 import announcementsReducer from "./slices/announcementsSlice";
 import bloggerAccountReducer from "./slices/bloggerAccountSlice";
 import bloggerPostsReducer from "./slices/bloggerPostsSlice";
+import blogCommentsReducer from "./slices/blogCommentsSlice";
 import blogsReducer from "./slices/blogsSlice";
 import dashboardsReducer from "./slices/dashboardsSlice";
 import meritListsReducer from "./slices/meritListsSlice";
@@ -34,6 +35,7 @@ export const store = configureStore({
     universityFormSetup: universityFormSetupReducer,
     adminUniversityManagement: adminUniversityManagementReducer,
     bloggerPosts: bloggerPostsReducer,
+    blogComments: blogCommentsReducer,
     universityAnnouncementsManagement: universityAnnouncementsManagementReducer,
     universityBlogManagement: universityBlogManagementReducer,
     universityApplicationRecords: universityApplicationRecordsReducer,

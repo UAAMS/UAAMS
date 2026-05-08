@@ -21,6 +21,7 @@ const UniversityAnnouncements = lazyNamed(
   "UniversityAnnouncements",
 );
 const UniversityBlog = lazyNamed(() => import("../components/university/UniversityBlog"), "UniversityBlog");
+const UniversityBlogView = lazyNamed(() => import("../components/university/UniversityBlogView"), "UniversityBlogView");
 const UniversitySettings = lazyNamed(
   () => import("../components/university/UniversitySettings"),
   "UniversitySettings",
@@ -37,6 +38,10 @@ const UniversityBloggerManagementPage = lazyNamed(
   () => import("../pages/university/UniversityBloggerManagementPage"),
   "UniversityBloggerManagementPage",
 );
+const UniversityBlogViewPage = lazyNamed(
+  () => import("../pages/university/UniversityBlogViewPage"),
+  "UniversityBlogViewPage",
+);
 const UniversityOverviewPage = lazyNamed(
   () => import("../pages/university/UniversityOverviewPage"),
   "UniversityOverviewPage",
@@ -48,7 +53,8 @@ export const universityNavItems = [
   { to: "/university/form-builder", label: "Form & Programs", icon: FileEdit },
   { to: "/university/payments", label: "Payments", icon: CreditCard },
   { to: "/university/announcements", label: "Announcements", icon: Bell },
-  { to: "/university/blog", label: "Blog", icon: BookOpen },
+  { to: "/university/blog-manage", label: "Manage Blog", icon: BookOpen },
+  { to: "/university/blog", label: "View Blog", icon: BookOpen },
   { to: "/university/bloggers", label: "Bloggers", icon: PenTool },
   { to: "/university/roll-numbers", label: "Roll Numbers", icon: Hash },
   { to: "/university/admission-letters", label: "Admission Letters", icon: ScrollText },
@@ -63,7 +69,8 @@ export const universityRoutePages = [
   { path: "form-config", element: <FormConfiguration /> },
   { path: "payments", element: <PaymentSettings /> },
   { path: "announcements", element: <UniversityAnnouncements /> },
-  { path: "blog", element: <UniversityBlog /> },
+  { path: "blog-manage", element: <UniversityBlog /> },
+  { path: "blog", element: <UniversityBlogViewPage /> },
   { path: "bloggers", element: <UniversityBloggerManagementPage /> },
   { path: "roll-numbers", element: <RollNumberManagement /> },
   { path: "admission-letters", element: <AdmissionLetterManagement /> },

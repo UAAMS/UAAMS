@@ -24,6 +24,8 @@ const {
   createMyBlog,
   updateMyBlog,
   deleteMyBlog,
+  getMyBlogComments,
+  deleteMyBlogComment,
   listMyRollNumbers,
   upsertMyRollNumber,
   listMyAdmissionLetters,
@@ -78,6 +80,9 @@ router.get("/me/blogs", protect, authorize(ROLES.UNIVERSITY), listMyBlogs);
 router.post("/me/blogs", protect, authorize(ROLES.UNIVERSITY), createMyBlog);
 router.patch("/me/blogs/:id", protect, authorize(ROLES.UNIVERSITY), updateMyBlog);
 router.delete("/me/blogs/:id", protect, authorize(ROLES.UNIVERSITY), deleteMyBlog);
+
+router.get("/me/blogs/:blogId/comments", protect, authorize(ROLES.UNIVERSITY), getMyBlogComments);
+router.delete("/me/blogs/:blogId/comments/:commentId", protect, authorize(ROLES.UNIVERSITY), deleteMyBlogComment);
 
 router.get("/me/roll-numbers", protect, authorize(ROLES.UNIVERSITY), listMyRollNumbers);
 router.patch(

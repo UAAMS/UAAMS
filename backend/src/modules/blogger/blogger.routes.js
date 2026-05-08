@@ -8,6 +8,8 @@ const {
   createMyPost,
   updateMyPost,
   deleteMyPost,
+  getMyPostComments,
+  deleteMyPostComment,
 } = require("./blogger.controller");
 const { protect, authorize } = require("../../middleware/auth.middleware");
 const { ROLES } = require("../../constants/roles");
@@ -25,5 +27,8 @@ router.get("/me/posts", listMyPosts);
 router.post("/me/posts", createMyPost);
 router.patch("/me/posts/:id", updateMyPost);
 router.delete("/me/posts/:id", deleteMyPost);
+
+router.get("/me/posts/:postId/comments", getMyPostComments);
+router.delete("/me/posts/:postId/comments/:commentId", deleteMyPostComment);
 
 module.exports = router;

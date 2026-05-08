@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Edit, Eye, Plus, Trash2 } from "lucide-react";
+import { Edit, Eye, Heart, Plus, Trash2 } from "lucide-react";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
@@ -87,6 +87,7 @@ function UniversityBlog() {
       published: posts.filter((item) => item.status === "published").length,
       drafts: posts.filter((item) => item.status === "draft").length,
       views: posts.reduce((total, item) => total + item.views, 0),
+      likes: posts.reduce((total, item) => total + item.likesCount, 0),
     }),
     [posts]
   );
@@ -237,11 +238,12 @@ function UniversityBlog() {
         </button>
       </div>
 
-      <div className="grid md:grid-cols-4 gap-4">
+      <div className="grid md:grid-cols-5 gap-4">
         <StatCard label="Total Posts" value={stats.total} />
         <StatCard label="Published" value={stats.published} />
         <StatCard label="Drafts" value={stats.drafts} />
         <StatCard label="Total Views" value={stats.views.toLocaleString()} />
+        <StatCard label="Total Likes" value={stats.likes.toLocaleString()} />
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-4">
