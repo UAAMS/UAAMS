@@ -91,6 +91,61 @@ const request = async (
   return parseResponse(response);
 };
 
+const requestBlob = async (
+  path,
+  {
+    method = "GET",
+    body,
+    token = getStoredToken(),
+    headers = {},
+  } = {},
+) => {
+  const requestHeaders = {
+    ...headers,
+  };
+
+  if (body !== undefined) {
+    requestHeaders["Content-Type"] = "application/json";
+  }
+
+  if (token) {
+    requestHeaders.Authorization = `Bearer ${token}`;
+  }
+
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers: requestHeaders,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch (fetchError) {
+    const error = new Error(
+      `Unable to reach API at ${API_BASE_URL}. Make sure backend is running and CORS is configured.`,
+    );
+    error.cause = fetchError;
+    throw error;
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    let payload = null;
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch {
+      payload = null;
+    }
+
+    const message = payload?.message || `Request failed with status ${response.status}`;
+    const error = new Error(message);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return response.blob();
+};
+
 const api = {
   get: (path, options) => request(path, { method: "GET", ...options }),
   post: (path, body, options) =>
@@ -100,6 +155,7 @@ const api = {
   patch: (path, body, options) =>
     request(path, { method: "PATCH", body, ...options }),
   del: (path, options) => request(path, { method: "DELETE", ...options }),
+  getBlob: (path, options) => requestBlob(path, { method: "GET", ...options }),
 };
 
 export {

@@ -3,13 +3,13 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { DashboardPageShell } from "../shared/DashboardPageShell";
-import { api } from "../../lib/apiClient";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
-  defaultApplicationFields,
-  getApplicationFieldsForUniversity,
-  getUniversityById,
-} from "../../data/universityRecommendationsData";
+  clearStudentApplicationFormErrors,
+  fetchStudentApplicationFormContext,
+  submitStudentApplicationDraft,
+} from "../../store/slices/studentApplicationFormSlice";
 
 const getFieldValue = ({
   field,
@@ -97,6 +97,23 @@ const pickFirstValue = (...values) => {
     }
   }
   return "";
+};
+
+const splitFullName = (fullName = "") => {
+  const normalized = String(fullName || "").trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return { firstName: "", lastName: "" };
+  }
+
+  const parts = normalized.split(" ");
+  if (parts.length === 1) {
+    return { firstName: parts[0], lastName: "" };
+  }
+
+  return {
+    firstName: parts.slice(0, -1).join(" "),
+    lastName: parts.at(-1) || "",
+  };
 };
 
 const resolveProfileValueForField = ({ field, profile, currentUser }) => {
@@ -263,124 +280,213 @@ const hasDeadlinePassed = (value) => {
   return date.getTime() < Date.now();
 };
 
+const formatPreviewDate = (value = new Date()) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+};
+
+const normalizePreviewValue = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (text.startsWith("/uploads/") || /^https?:\/\//i.test(text)) {
+    const cleanUrl = text.split("#")[0].split("?")[0];
+    const fileName = cleanUrl.split("/").filter(Boolean).pop();
+    return fileName ? decodeURIComponent(fileName) : text;
+  }
+  if (/^data:[^;]+;base64,/i.test(text)) {
+    return "[file]";
+  }
+  return text;
+};
+
+const resolveTemplateFieldValue = ({
+  template,
+  formFields,
+  fieldId,
+  formData,
+  university,
+  resolvedProgram,
+  currentUser,
+  studentProfile,
+}) => {
+  const mappedFieldIds = new Set(
+    Array.isArray(template?.fieldMappings)
+      ? template.fieldMappings
+          .map((mapping) => String(mapping?.fieldId || "").trim())
+          .filter(Boolean)
+      : [],
+  );
+  const fieldLabelLookup = (Array.isArray(formFields) ? formFields : []).reduce((acc, field) => {
+    const id = String(field?.id || "").trim();
+    const label = String(field?.label || "").trim();
+    if (id && label) {
+      acc[id] = label;
+    }
+    return acc;
+  }, {});
+  const fullName = pickFirstValue(formData?.["1"], studentProfile?.fullName, currentUser?.name);
+  const splitName = splitFullName(fullName);
+  const normalizedGender = String(formData?.gender || studentProfile?.gender || "")
+    .trim()
+    .toLowerCase();
+  const matricMarks = Number(formData?.["7"] || 0);
+  const interMarks = Number(formData?.["8"] || 0);
+  const calculatedAggregate =
+    Number(formData?.aggregate || 0) ||
+    (matricMarks > 0 && interMarks > 0
+      ? Number((((matricMarks + interMarks) / 2200) * 100).toFixed(2))
+      : 0);
+  const consumedFieldIds = new Set([
+    "1",
+    "2",
+    "3",
+    "4",
+    "dob",
+    "gender",
+    "nationality",
+    "city",
+    "province",
+    "postalCode",
+    "address",
+  ]);
+  const dynamicFieldsSummary = Object.entries(formData || {})
+    .map(([id, value]) => ({
+      id: String(id || "").trim(),
+      value: normalizePreviewValue(value),
+    }))
+    .filter(
+      (entry) =>
+        entry.id &&
+        entry.value &&
+        !mappedFieldIds.has(entry.id) &&
+        !consumedFieldIds.has(entry.id),
+    )
+    .map((entry) => `${fieldLabelLookup[entry.id] || `Field ${entry.id}`}: ${entry.value}`)
+    .join(" | ");
+
+  const metaLookup = {
+    "meta.universityContactSummary": [university?.name, university?.email, university?.phone, university?.address]
+      .filter(hasTextValue)
+      .join("\n"),
+    "meta.universityName": university?.name || "",
+    "meta.universityEmail": university?.email || "",
+    "meta.universityPhone": university?.phone || "",
+    "meta.universityAddress": university?.address || "",
+    "meta.universityCity": university?.location || "",
+    "meta.applicationCode": "Generated after payment",
+    "meta.program": resolvedProgram || "",
+    "meta.applicationStatus": "Draft",
+    "meta.aggregate": calculatedAggregate > 0 ? `${calculatedAggregate}%` : "",
+    "meta.appliedDate": formatPreviewDate(new Date()),
+    "meta.studentName": fullName,
+    "meta.studentEmail": formData?.["2"] || studentProfile?.email || currentUser?.email || "",
+    "meta.studentCnic": formData?.["4"] || studentProfile?.cnic || "",
+    "meta.studentFirstName": splitName.firstName,
+    "meta.studentLastName": splitName.lastName || splitName.firstName,
+    "meta.studentBirthDate": formData?.dob || studentProfile?.dateOfBirth || "",
+    "meta.studentGender": formData?.gender || studentProfile?.gender || "",
+    "meta.genderMaleMark": ["m", "male", "man"].includes(normalizedGender) ? "X" : "",
+    "meta.genderFemaleMark": ["f", "female", "woman"].includes(normalizedGender) ? "X" : "",
+    "meta.studentNationality": formData?.nationality || studentProfile?.nationality || "",
+    "meta.studentPhone":
+      formData?.["3"] || studentProfile?.phone || studentProfile?.alternatePhone || "",
+    "meta.studentCity": formData?.city || studentProfile?.city || "",
+    "meta.studentProvince": formData?.province || studentProfile?.province || "",
+    "meta.studentPostalCode": formData?.postalCode || studentProfile?.postalCode || "",
+    "meta.studentAddressLine": formData?.address || studentProfile?.address || "",
+    "meta.studentSignature": fullName,
+    "meta.dynamicFieldsSummary": dynamicFieldsSummary,
+  };
+
+  if (Object.prototype.hasOwnProperty.call(metaLookup, fieldId)) {
+    return normalizePreviewValue(metaLookup[fieldId]);
+  }
+
+  return normalizePreviewValue(formData?.[fieldId] || "");
+};
+
 export const StudentApplicationFormPage = () => {
+  const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const { universityId } = useParams();
   const [searchParams] = useSearchParams();
   const selectedProgram = searchParams.get("program") || "";
   const draftId = searchParams.get("draft") || "";
+  const {
+    university,
+    formFields: storedFormFields,
+    activeTemplate,
+    studentProfile,
+    draftApplication,
+    loading: isLoading,
+    error,
+    submitting: isSubmitting,
+    submitError: submissionError,
+  } = useAppSelector((state) => state.studentApplicationForm);
 
-  const [university, setUniversity] = useState(null);
-  const [formFields, setFormFields] = useState(defaultApplicationFields);
-  const [draftProgram, setDraftProgram] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const formFields = useMemo(
+    () => ensureRequiredDocumentFields(storedFormFields || []),
+    [storedFormFields],
+  );
+  const draftProgram = useMemo(() => String(draftApplication?.program || ""), [draftApplication?.program]);
 
   const [formData, setFormData] = useState({
     "1": currentUser?.name || "",
     "2": currentUser?.email || "",
   });
   const [errors, setErrors] = useState({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState("");
+  const [localSubmitError, setLocalSubmitError] = useState("");
   const [autoFillMessage, setAutoFillMessage] = useState("");
   const [fileHints, setFileHints] = useState({});
+  const [showTemplatePreview, setShowTemplatePreview] = useState(false);
 
   useEffect(() => {
-    let isMounted = true;
-
-    const loadData = async () => {
-      setIsLoading(true);
-      setError("");
-      try {
-        const requests = [
-          getUniversityById(universityId),
-          getApplicationFieldsForUniversity(universityId),
-          api.get("/students/me/profile"),
-        ];
-
-        if (draftId) {
-          requests.push(api.get(`/applications/${draftId}`));
-        }
-
-        const [universityResult, fieldsResult, profileResponse, draftResponse] = await Promise.all(requests);
-
-        if (!isMounted) return;
-        const effectiveFields =
-          Array.isArray(fieldsResult) && fieldsResult.length > 0
-            ? fieldsResult
-            : defaultApplicationFields;
-        const fieldsWithRequiredDocs = ensureRequiredDocumentFields(effectiveFields);
-        const profile = profileResponse?.data?.profile || {};
-        const autoFillData = buildAutoFilledFormData({
-          fields: fieldsWithRequiredDocs,
-          profile,
-          currentUser,
-        });
-
-        setUniversity(universityResult);
-        setFormFields(fieldsWithRequiredDocs);
-        setFormData((previous) => ({
-          ...previous,
-          ...autoFillData.values,
-        }));
-        setFileHints((previous) => ({
-          ...previous,
-          ...autoFillData.fileHints,
-        }));
-
-        if (draftResponse?.data?.application) {
-          const draftApplication = draftResponse.data.application;
-          const draftUniversityId = String(
-            draftApplication?.university?._id ||
-              draftApplication?.university?.id ||
-              draftApplication?.university ||
-              "",
-          );
-
-          if (draftUniversityId && draftUniversityId !== String(universityId)) {
-            throw new Error("Selected draft does not belong to this university.");
-          }
-
-          setDraftProgram(String(draftApplication?.program || ""));
-          setFormData((previous) => ({
-            ...previous,
-            ...(draftApplication?.formData || {}),
-          }));
-
-          const nextFileHints = {};
-          fieldsWithRequiredDocs.forEach((field) => {
-            if (field.type !== "file") return;
-            const value = draftApplication?.formData?.[field.id];
-            if (String(value || "").trim()) {
-              nextFileHints[field.id] = field.label || "Attached document";
-            }
-          });
-          setFileHints((previous) => ({ ...previous, ...nextFileHints }));
-        }
-
-        setAutoFillMessage(
-          Object.keys(autoFillData.values).length > 0
-            ? "Form was auto-filled from your student profile. You can edit any field before submission."
-            : "",
-        );
-      } catch (err) {
-        if (!isMounted) return;
-        setError(err?.message || "Unable to load form details.");
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadData();
-
+    dispatch(clearStudentApplicationFormErrors());
+    dispatch(fetchStudentApplicationFormContext({ universityId, draftId }));
     return () => {
-      isMounted = false;
+      dispatch(clearStudentApplicationFormErrors());
     };
-  }, [universityId, currentUser, draftId]);
+  }, [dispatch, universityId, draftId]);
+
+  useEffect(() => {
+    const autoFillData = buildAutoFilledFormData({
+      fields: formFields,
+      profile: studentProfile || {},
+      currentUser,
+    });
+
+    const nextFormData = {
+      "1": currentUser?.name || "",
+      "2": currentUser?.email || "",
+      ...autoFillData.values,
+      ...(draftApplication?.formData || {}),
+    };
+
+    const nextFileHints = { ...autoFillData.fileHints };
+    formFields.forEach((field) => {
+      if (field.type !== "file") return;
+      const value = draftApplication?.formData?.[field.id];
+      if (String(value || "").trim()) {
+        nextFileHints[field.id] = field.label || "Attached document";
+      }
+    });
+
+    setFormData(nextFormData);
+    setFileHints(nextFileHints);
+    setErrors({});
+    setLocalSubmitError("");
+    setAutoFillMessage(
+      Object.keys(autoFillData.values).length > 0
+        ? "Form was auto-filled from your student profile. You can edit any field before submission."
+        : "",
+    );
+  }, [formFields, studentProfile, currentUser, draftApplication]);
 
   const resolvedProgram = useMemo(
     () => selectedProgram || draftProgram || university?.programs?.[0] || "Program",
@@ -404,14 +510,18 @@ export const StudentApplicationFormPage = () => {
   const isProgramDeadlinePassed = hasDeadlinePassed(selectedProgramDetails?.deadlineDate);
   const isSubmissionBlocked =
     programMissingFromUniversity || isProgramAdmissionClosed || isProgramDeadlinePassed;
+  const effectiveSubmitError = localSubmitError || submissionError;
 
   const handleChange = (fieldId, value) => {
     setFormData((previous) => ({ ...previous, [fieldId]: value }));
     if (errors[fieldId]) {
       setErrors((previous) => ({ ...previous, [fieldId]: "" }));
     }
-    if (submitError) {
-      setSubmitError("");
+    if (localSubmitError) {
+      setLocalSubmitError("");
+    }
+    if (submissionError) {
+      dispatch(clearStudentApplicationFormErrors());
     }
   };
 
@@ -425,32 +535,39 @@ export const StudentApplicationFormPage = () => {
       if (errors[fieldId]) {
         setErrors((previous) => ({ ...previous, [fieldId]: "" }));
       }
-    } catch (error) {
-      setSubmitError(error?.message || "Unable to read selected file.");
+      if (submissionError) {
+        dispatch(clearStudentApplicationFormErrors());
+      }
+    } catch (fileError) {
+      setLocalSubmitError(fileError?.message || "Unable to read selected file.");
     }
   };
 
   const handleClearFile = (fieldId) => {
     setFormData((previous) => ({ ...previous, [fieldId]: "" }));
     setFileHints((previous) => ({ ...previous, [fieldId]: "" }));
+    if (submissionError) {
+      dispatch(clearStudentApplicationFormErrors());
+    }
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    setSubmitError("");
+    setLocalSubmitError("");
+    dispatch(clearStudentApplicationFormErrors());
 
     if (programMissingFromUniversity) {
-      setSubmitError("Selected program is no longer available. Please choose another program.");
+      setLocalSubmitError("Selected program is no longer available. Please choose another program.");
       return;
     }
 
     if (isProgramAdmissionClosed) {
-      setSubmitError("Admission is currently closed for this program.");
+      setLocalSubmitError("Admission is currently closed for this program.");
       return;
     }
 
     if (isProgramDeadlinePassed) {
-      setSubmitError("Application deadline has passed for this program.");
+      setLocalSubmitError("Application deadline has passed for this program.");
       return;
     }
 
@@ -467,7 +584,6 @@ export const StudentApplicationFormPage = () => {
       return;
     }
 
-    setIsSubmitting(true);
     try {
       const payload = {
         universityId: university?.id || universityId,
@@ -475,25 +591,22 @@ export const StudentApplicationFormPage = () => {
         formData,
       };
 
-      let applicationId = "";
-      if (draftId) {
-        const response = await api.patch(`/applications/${draftId}`, payload);
-        applicationId = response?.data?.application?._id || draftId;
-      } else {
-        const response = await api.post("/applications", payload);
-        applicationId = response?.data?.application?._id || "";
-      }
+      const { applicationId = "" } = await dispatch(
+        submitStudentApplicationDraft({ draftId, payload }),
+      ).unwrap();
 
       if (!applicationId) {
-        setSubmitError("Application draft could not be prepared for payment.");
+        setLocalSubmitError("Application draft could not be prepared for payment.");
         return;
       }
 
       navigate(`/student/apply/${universityId}/payment/${applicationId}`);
-    } catch (submissionError) {
-      setSubmitError(submissionError?.message || "Unable to save application draft.");
-    } finally {
-      setIsSubmitting(false);
+    } catch (submissionFailure) {
+      setLocalSubmitError(
+        typeof submissionFailure === "string"
+          ? submissionFailure
+          : submissionFailure?.message || "Unable to save application draft.",
+      );
     }
   };
 
@@ -560,6 +673,17 @@ export const StudentApplicationFormPage = () => {
             {autoFillMessage}
           </div>
         ) : null}
+        {activeTemplate ? (
+          <div className="flex justify-start">
+            <button
+              type="button"
+              onClick={() => setShowTemplatePreview(true)}
+              className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm text-indigo-700 hover:bg-indigo-100"
+            >
+              Preview Generated Template
+            </button>
+          </div>
+        ) : null}
         {programMissingFromUniversity ? (
           <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
             This program is no longer available. Please go back to recommendations.
@@ -597,8 +721,8 @@ export const StudentApplicationFormPage = () => {
           </div>
         ))}
 
-        {submitError ? (
-          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{submitError}</p>
+        {effectiveSubmitError ? (
+          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{effectiveSubmitError}</p>
         ) : null}
 
         <div className="flex justify-end gap-3 border-t border-slate-200 pt-4">
@@ -624,6 +748,115 @@ export const StudentApplicationFormPage = () => {
           </button>
         </div>
       </form>
+      {showTemplatePreview && activeTemplate ? (
+        <ApplicationTemplatePreviewModal
+          template={activeTemplate}
+          formData={formData}
+          university={university}
+          resolvedProgram={resolvedProgram}
+          currentUser={currentUser}
+          studentProfile={studentProfile}
+          formFields={formFields}
+          onClose={() => setShowTemplatePreview(false)}
+        />
+      ) : null}
     </DashboardPageShell>
+  );
+};
+
+const ApplicationTemplatePreviewModal = ({
+  template,
+  formData,
+  university,
+  resolvedProgram,
+  currentUser,
+  studentProfile,
+  formFields,
+  onClose,
+}) => {
+  const pageWidth = Math.max(200, Number(template?.pageWidth || 1240));
+  const pageHeight = Math.max(200, Number(template?.pageHeight || 1754));
+  const mappings = Array.isArray(template?.fieldMappings) ? template.fieldMappings : [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="max-h-[95vh] w-full max-w-6xl overflow-hidden rounded-xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+          <div>
+            <h3 className="text-slate-900">Template Preview</h3>
+            <p className="text-xs text-slate-600">
+              {template?.name || "Application Template"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+          >
+            Close
+          </button>
+        </div>
+        <div className="max-h-[calc(95vh-64px)] overflow-auto bg-slate-100 p-4">
+          <div className="mx-auto w-fit rounded-lg border border-slate-200 bg-white p-3">
+            <div
+              className="relative overflow-hidden rounded border border-slate-200"
+              style={{ width: `${pageWidth}px`, height: `${pageHeight}px` }}
+            >
+              <img
+                src={template.fileUrl}
+                alt={template.name || "Template"}
+                className="h-full w-full object-fill"
+              />
+              {mappings.map((mapping) => {
+                const fieldId = String(mapping?.fieldId || "").trim();
+                if (!fieldId) return null;
+
+                const value = resolveTemplateFieldValue({
+                  template,
+                  formFields,
+                  fieldId,
+                  formData,
+                  university,
+                  resolvedProgram,
+                  currentUser,
+                  studentProfile,
+                });
+                if (!value) return null;
+
+                const width = Math.max(20, Number(mapping?.width || 200));
+                const height = Math.max(16, Number(mapping?.height || 24));
+                const fontSize = Math.max(8, Number(mapping?.fontSize || 12));
+                const x = Math.max(0, Number(mapping?.x || 0));
+                const y = Math.max(0, Number(mapping?.y || 0));
+                const textAlign = ["left", "center", "right"].includes(
+                  String(mapping?.textAlign || "").toLowerCase(),
+                )
+                  ? String(mapping.textAlign).toLowerCase()
+                  : "left";
+
+                return (
+                  <div
+                    key={mapping.id || `${fieldId}-${x}-${y}`}
+                    className="absolute whitespace-pre-wrap break-words"
+                    style={{
+                      left: `${x}px`,
+                      top: `${y}px`,
+                      width: `${width}px`,
+                      minHeight: `${height}px`,
+                      fontSize: `${fontSize}px`,
+                      lineHeight: 1.25,
+                      color: String(mapping?.color || "#0f172a"),
+                      textAlign,
+                    }}
+                  >
+                    {value}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 };

@@ -13,9 +13,16 @@ import {
 } from "recharts";
 import { DashboardPageShell } from "../../pages/shared/DashboardPageShell";
 import { MetricGrid } from "../../pages/shared/MetricGrid";
-import { api } from "../../lib/apiClient";
 import { onDataUpdated } from "../../lib/socketClient";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import { fetchBloggerDashboard } from "../../store/slices/dashboardsSlice";
+import {
+  createBloggerPost,
+  deleteBloggerPost,
+  fetchBloggerPosts,
+  updateBloggerPost,
+} from "../../store/slices/bloggerPostsSlice";
 
 const initialFormState = {
   title: "",
@@ -37,24 +44,6 @@ const defaultMetrics = {
   totalReplies: 0,
 };
 
-const normalizePost = (item) => ({
-  id: String(item?._id || item?.id || ""),
-  title: item?.title || "",
-  excerpt: item?.excerpt || "",
-  content: item?.content || "",
-  category: item?.category || "General",
-  tags: Array.isArray(item?.tags) ? item.tags : [],
-  imageUrl: item?.imageUrl || "",
-  status: item?.status || "draft",
-  views: Number(item?.views || 0),
-  likesCount: Number(item?.likesCount || 0),
-  commentsCount: Number(item?.commentsCount || 0),
-  repliesCount: Number(item?.repliesCount || 0),
-  publishedAt: item?.publishedAt || null,
-  createdAt: item?.createdAt || null,
-  updatedAt: item?.updatedAt || null,
-});
-
 const formatDate = (value) => {
   if (!value) return "N/A";
   const date = new Date(value);
@@ -70,13 +59,26 @@ const monthLabel = (value) =>
   new Date(value).toLocaleString("en-US", { month: "short", year: "2-digit" });
 
 function BloggerDashboard() {
-  const [metrics, setMetrics] = useState(defaultMetrics);
-  const [managedUniversity, setManagedUniversity] = useState(null);
-  const [activeMetricLabel, setActiveMetricLabel] = useState("");
+  const dispatch = useAppDispatch();
+  const {
+    data: dashboardData,
+    loading: dashboardLoading,
+    error: dashboardError,
+  } = useAppSelector((state) => state.dashboards.blogger);
+  const {
+    items: posts,
+    loading: postsLoading,
+    error: postsError,
+    saving: isSaving,
+    mutationError,
+    deletingIds,
+  } = useAppSelector((state) => state.bloggerPosts);
 
-  const [posts, setPosts] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const metrics = dashboardData?.metrics || defaultMetrics;
+  const managedUniversity = dashboardData?.managedUniversity || null;
+  const isLoading = (dashboardLoading || postsLoading) && !dashboardData && posts.length === 0;
+  const error = mutationError || postsError || dashboardError;
+  const [activeMetricLabel, setActiveMetricLabel] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -86,44 +88,26 @@ function BloggerDashboard() {
   const [formData, setFormData] = useState(initialFormState);
   const [imageFileName, setImageFileName] = useState("");
   const [formError, setFormError] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-
-  const loadDashboard = useCallback(async () => {
-    const response = await api.get("/blogger/me/dashboard");
-    setMetrics(response?.data?.metrics || defaultMetrics);
-    setManagedUniversity(response?.data?.managedUniversity || null);
-  }, []);
-
-  const loadPosts = useCallback(async () => {
-    const response = await api.get("/blogger/me/posts?limit=200");
-    const items = response?.data?.posts || [];
-    setPosts(items.map(normalizePost));
-  }, []);
 
   const loadData = useCallback(
-    async ({ silent = false } = {}) => {
-      if (!silent) {
-        setIsLoading(true);
-      }
-      setError("");
-      try {
-        await Promise.all([loadDashboard(), loadPosts()]);
-      } catch (loadError) {
-        setError(loadError?.message || "Unable to load blogger dashboard.");
-      } finally {
-        if (!silent) {
-          setIsLoading(false);
-        }
-      }
+    async () => {
+      await Promise.all([
+        dispatch(fetchBloggerDashboard()).unwrap(),
+        dispatch(fetchBloggerPosts()).unwrap(),
+      ]);
     },
-    [loadDashboard, loadPosts],
+    [dispatch],
   );
 
   useEffect(() => {
-    loadData();
+    loadData().catch(() => {
+      // Errors are surfaced from Redux state.
+    });
     const unsubscribe = onDataUpdated((event) => {
       if (event?.resource === "blogs" || event?.resource === "blog-interactions") {
-        loadData({ silent: true });
+        loadData().catch(() => {
+          // Errors are surfaced from Redux state.
+        });
       }
     });
     return () => unsubscribe();
@@ -246,6 +230,11 @@ function BloggerDashboard() {
     }
   }, [activeMetricLabel, metrics, posts]);
 
+  const isDeletingPost = useCallback(
+    (postId) => deletingIds.includes(String(postId)),
+    [deletingIds],
+  );
+
   const closeForm = () => {
     setShowForm(false);
     setEditingId("");
@@ -305,31 +294,32 @@ function BloggerDashboard() {
   const handleSave = async (event) => {
     event.preventDefault();
     setFormError("");
-    setIsSaving(true);
     try {
       const payload = buildPayload();
       if (editingId) {
-        await api.patch(`/blogger/me/posts/${editingId}`, payload);
+        await dispatch(updateBloggerPost({ postId: editingId, payload })).unwrap();
       } else {
-        await api.post("/blogger/me/posts", payload);
+        await dispatch(createBloggerPost(payload)).unwrap();
       }
+      await Promise.all([
+        dispatch(fetchBloggerDashboard()).unwrap(),
+        dispatch(fetchBloggerPosts()).unwrap(),
+      ]);
       closeForm();
-      await loadData({ silent: true });
     } catch (saveError) {
-      setFormError(saveError?.message || "Unable to save post.");
-    } finally {
-      setIsSaving(false);
+      const message =
+        typeof saveError === "string" ? saveError : saveError?.message || "Unable to save post.";
+      setFormError(message);
     }
   };
 
   const handleDelete = async (postId) => {
     if (!window.confirm("Delete this post?")) return;
     try {
-      await api.del(`/blogger/me/posts/${postId}`);
-      setPosts((previous) => previous.filter((item) => item.id !== postId));
-      await loadDashboard();
-    } catch (deleteError) {
-      setError(deleteError?.message || "Unable to delete post.");
+      await dispatch(deleteBloggerPost(postId)).unwrap();
+      await dispatch(fetchBloggerDashboard()).unwrap();
+    } catch {
+      // Errors are surfaced from Redux state.
     }
   };
 
@@ -523,9 +513,10 @@ function BloggerDashboard() {
                   <button
                     type="button"
                     onClick={() => handleDelete(post.id)}
-                    className="rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50"
+                    disabled={isDeletingPost(post.id)}
+                    className="rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 disabled:opacity-60"
                   >
-                    Delete
+                    {isDeletingPost(post.id) ? "Deleting..." : "Delete"}
                   </button>
                 </div>
               </div>

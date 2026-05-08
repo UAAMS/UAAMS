@@ -1,11 +1,21 @@
+const fs = require("node:fs/promises");
+const path = require("node:path");
 const mongoose = require("mongoose");
 const Application = require("../models/Application");
 const User = require("../models/User");
+const StudentProfile = require("../models/StudentProfile");
 const UniversityProfile = require("../models/UniversityProfile");
+const UniversityForm = require("../models/UniversityForm");
 const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
+const env = require("../config/env");
 const getPagination = require("../utils/pagination");
 const { emitDataUpdate } = require("../utils/socket");
+const { persistMaybeDataUrl, persistDataUrlsInValue } = require("../utils/fileStorage");
+const { generateApplicationTemplatePdf } = require("../utils/applicationTemplatePdf");
+const { normalizePaymentMethods } = require("../utils/paymentMethods");
+const { createZipArchive } = require("../utils/zipArchive");
+const { getSystemApplicationTemplate } = require("../config/systemApplicationTemplate");
 const {
   sendRollNumberAssignedEmail,
   sendAdmissionLetterIssuedEmail,
@@ -41,6 +51,12 @@ const canAccessApplication = (application, user) => {
   }
   return false;
 };
+
+const sanitizeDownloadFileName = (value) =>
+  String(value || "application-template")
+    .replace(/[<>:"/\\|?*]+/g, "-")
+    .replace(/\s+/g, "-")
+    .toLowerCase();
 
 const findProgramByName = (profile, programName) => {
   const normalizedProgramName = String(programName || "").trim().toLowerCase();
@@ -107,8 +123,288 @@ const canTransitionStatus = ({ currentStatus, nextStatus }) => {
   return allowed.includes(String(nextStatus));
 };
 
+const APPLICATION_LIST_PROJECTION = [
+  "applicationCode",
+  "student",
+  "university",
+  "studentName",
+  "email",
+  "cnic",
+  "program",
+  "aggregate",
+  "matricMarks",
+  "interMarks",
+  "testScore",
+  "status",
+  "payment",
+  "rollNumber",
+  "admissionLetter",
+  "eligibleForAdmissionLetter",
+  "meritPosition",
+  "meritListNumber",
+  "appliedAt",
+  "createdAt",
+  "updatedAt",
+].join(" ");
+
+const normalizeApplicationFormData = async (formData, userId) => {
+  const fallbackPayload =
+    formData && typeof formData === "object" && !Array.isArray(formData) ? formData : {};
+  const result = await persistDataUrlsInValue(fallbackPayload, {
+    folder: `applications/${String(userId)}/form-data`,
+    preferredNamePrefix: "form-field",
+  });
+  return result.value;
+};
+
+const DATA_URL_PATTERN = /^data:([^;]+);base64,(.+)$/i;
+const HTTP_URL_PATTERN = /^https?:\/\//i;
+
+const inferMimeTypeByExtension = (fileName = "") => {
+  const extension = path.extname(String(fileName || "")).toLowerCase();
+  if ([".jpg", ".jpeg"].includes(extension)) return "image/jpeg";
+  if (extension === ".png") return "image/png";
+  if (extension === ".webp") return "image/webp";
+  if (extension === ".gif") return "image/gif";
+  if (extension === ".pdf") return "application/pdf";
+  if (extension === ".doc") return "application/msword";
+  if (extension === ".docx") {
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  }
+  return "application/octet-stream";
+};
+
+const inferExtension = ({ mimeType = "", source = "", fallback = "bin" } = {}) => {
+  const sourceExtension = path.extname(String(source || "").split("?")[0].split("#")[0])
+    .replace(".", "")
+    .toLowerCase();
+  if (sourceExtension) return sourceExtension;
+
+  const normalizedMime = String(mimeType || "").toLowerCase();
+  const extensionByMime = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "application/pdf": "pdf",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  };
+  return extensionByMime[normalizedMime] || fallback;
+};
+
+const sanitizeZipName = (value, fallback = "file") =>
+  String(value || fallback)
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001f]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase() || fallback;
+
+const parseDataUrl = (value = "") => {
+  const match = String(value || "").match(DATA_URL_PATTERN);
+  if (!match) return null;
+  try {
+    return {
+      mimeType: String(match[1] || "").toLowerCase(),
+      bytes: Buffer.from(String(match[2] || ""), "base64"),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const extractFileNameFromUrl = (value = "") => {
+  const cleanValue = String(value || "").split("#")[0].split("?")[0];
+  const name = cleanValue.split(/[\\/]/).filter(Boolean).pop();
+  return name ? decodeURIComponent(name) : "";
+};
+
+const trimTrailingSlash = (value) => String(value || "").replace(/\/+$/, "");
+
+const readDownloadableFile = async (source) => {
+  const value = String(source || "").trim();
+  if (!value) {
+    throw new Error("File source is missing.");
+  }
+
+  if (DATA_URL_PATTERN.test(value)) {
+    const parsed = parseDataUrl(value);
+    if (!parsed?.bytes?.length) {
+      throw new Error("File data is invalid.");
+    }
+    return {
+      bytes: parsed.bytes,
+      mimeType: parsed.mimeType,
+      sourceName: `upload.${inferExtension({ mimeType: parsed.mimeType })}`,
+    };
+  }
+
+  const normalizedUploadsBase = trimTrailingSlash(env.uploadsPublicBaseUrl);
+  if (value.startsWith("/uploads/")) {
+    const relativePath = value.replace(/^\/uploads\//, "");
+    const absolutePath = path.resolve(env.uploadsDir, relativePath);
+    return {
+      bytes: await fs.readFile(absolutePath),
+      mimeType: inferMimeTypeByExtension(absolutePath),
+      sourceName: extractFileNameFromUrl(value),
+    };
+  }
+
+  if (normalizedUploadsBase && value.startsWith(`${normalizedUploadsBase}/uploads/`)) {
+    const relativePath = value.slice(`${normalizedUploadsBase}/uploads/`.length);
+    const absolutePath = path.resolve(env.uploadsDir, relativePath);
+    return {
+      bytes: await fs.readFile(absolutePath),
+      mimeType: inferMimeTypeByExtension(absolutePath),
+      sourceName: extractFileNameFromUrl(value),
+    };
+  }
+
+  if (HTTP_URL_PATTERN.test(value)) {
+    const response = await fetch(value);
+    if (!response.ok) {
+      throw new Error(`Unable to fetch uploaded file (${response.status}).`);
+    }
+    return {
+      bytes: Buffer.from(await response.arrayBuffer()),
+      mimeType: String(response.headers.get("content-type") || "").toLowerCase(),
+      sourceName: extractFileNameFromUrl(value),
+    };
+  }
+
+  const absolutePath = path.isAbsolute(value)
+    ? value
+    : path.resolve(env.uploadsDir, value.replace(/^\/+/, ""));
+  return {
+    bytes: await fs.readFile(absolutePath),
+    mimeType: inferMimeTypeByExtension(absolutePath),
+    sourceName: path.basename(absolutePath),
+  };
+};
+
+const valueLooksLikeUploadedFile = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (DATA_URL_PATTERN.test(text)) return true;
+  if (text.startsWith("/uploads/") || HTTP_URL_PATTERN.test(text)) return true;
+  return /\.(pdf|png|jpe?g|webp|gif|docx?|txt)(\?|#|$)/i.test(text);
+};
+
+const buildFormFieldLookup = (formFields = []) => {
+  const lookup = new Map();
+  if (!Array.isArray(formFields)) return lookup;
+  formFields.forEach((field) => {
+    const id = String(field?.id || "").trim();
+    if (!id) return;
+    lookup.set(id, {
+      label: String(field?.label || `Field ${id}`).trim(),
+      type: String(field?.type || "").toLowerCase(),
+    });
+  });
+  return lookup;
+};
+
+const defaultUploadedFieldLabels = {
+  "9": "Profile Picture",
+  "10": "Domicile Certificate",
+  "11": "Matric Result",
+  "12": "Inter Result",
+  "uaams-doc-profile-picture": "Profile Picture",
+  "uaams-doc-domicile": "Domicile Certificate",
+  "uaams-doc-matric-result": "Matric Result",
+  "uaams-doc-inter-result": "Inter Result",
+};
+
+const collectUploadedFilesFromValue = ({
+  value,
+  fieldPath,
+  label,
+  fieldType,
+  results,
+}) => {
+  if (typeof value === "string") {
+    if (fieldType === "file" || valueLooksLikeUploadedFile(value)) {
+      results.push({
+        source: value,
+        label,
+        fieldPath,
+      });
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      collectUploadedFilesFromValue({
+        value: item,
+        fieldPath: `${fieldPath}-${index + 1}`,
+        label: `${label} ${index + 1}`,
+        fieldType,
+        results,
+      });
+    });
+    return;
+  }
+
+  if (value && typeof value === "object") {
+    Object.entries(value).forEach(([key, item]) => {
+      collectUploadedFilesFromValue({
+        value: item,
+        fieldPath: `${fieldPath}-${key}`,
+        label: `${label} ${key}`,
+        fieldType,
+        results,
+      });
+    });
+  }
+};
+
+const collectApplicationUploadedFiles = ({ application, formFields }) => {
+  const formData = application?.formData && typeof application.formData === "object"
+    ? application.formData
+    : {};
+  const fieldLookup = buildFormFieldLookup(formFields);
+  const results = [];
+
+  Object.entries(formData).forEach(([fieldId, value]) => {
+    const field = fieldLookup.get(String(fieldId)) || {};
+    collectUploadedFilesFromValue({
+      value,
+      fieldPath: String(fieldId),
+      label: field.label || defaultUploadedFieldLabels[String(fieldId)] || `Field ${fieldId}`,
+      fieldType: field.type || "",
+      results,
+    });
+  });
+
+  return results;
+};
+
+const buildApplicationPdfBuffer = async ({ application, universityForm, universityProfile }) => {
+  const universityId = resolveIdValue(application.university);
+  const studentId = resolveIdValue(application.student);
+  const [universityUser, studentUser, studentProfile] = await Promise.all([
+    User.findById(universityId).select("name email phone location").lean(),
+    User.findById(studentId).select("name email").lean(),
+    StudentProfile.findOne({ user: studentId }).lean(),
+  ]);
+
+  return generateApplicationTemplatePdf({
+    template: getSystemApplicationTemplate(),
+    application,
+    universityProfile,
+    universityUser,
+    studentUser,
+    studentProfile,
+    formFields: Array.isArray(universityForm?.fields) ? universityForm.fields : [],
+  });
+};
+
 const createApplication = asyncHandler(async (req, res) => {
-  const { universityId, program, formData = {}, payment } = req.body;
+  const { universityId, program, formData: incomingFormData = {}, payment } = req.body;
+  const formData = await normalizeApplicationFormData(incomingFormData, req.user._id);
 
   ensureObjectId(universityId, "Invalid university id.");
 
@@ -120,13 +416,17 @@ const createApplication = asyncHandler(async (req, res) => {
     _id: universityId,
     role: ROLES.UNIVERSITY,
     approvalStatus: UNIVERSITY_APPROVAL.APPROVED,
-  });
+  })
+    .select("_id")
+    .lean();
 
   if (!university) {
     throw new ApiError(404, "University is not available for application.");
   }
 
-  const profile = await UniversityProfile.findOne({ university: university._id });
+  const profile = await UniversityProfile.findOne({ university: university._id })
+    .select("acceptApplicationsThroughUaams applicationEndDate programs applicationFee")
+    .lean();
   ensureProgramAcceptingApplications({ profile, programName: program });
   const applicationFee = Number(profile?.applicationFee || 0);
 
@@ -200,6 +500,7 @@ const getMyApplications = asyncHandler(async (req, res) => {
   }
 
   const applications = await Application.find(query)
+    .select(APPLICATION_LIST_PROJECTION)
     .sort({ createdAt: -1 })
     .populate("university", "name")
     .lean();
@@ -226,19 +527,187 @@ const getApplicationById = asyncHandler(async (req, res) => {
     throw new ApiError(403, "You do not have permission to view this application.");
   }
 
+  const universityProfile = await UniversityProfile.findOne({
+    university: resolveIdValue(application.university),
+  })
+    .select("paymentMethods")
+    .lean();
+
   return res.status(200).json({
     success: true,
-    data: { application },
+    data: {
+      application: {
+        ...application,
+        paymentMethods: normalizePaymentMethods(universityProfile?.paymentMethods).filter(
+          (method) => method.isActive,
+        ),
+      },
+    },
   });
+});
+
+const downloadApplicationTemplatePdf = asyncHandler(async (req, res) => {
+  ensureObjectId(req.params.id, "Invalid application id.");
+
+  const application = await Application.findById(req.params.id).lean();
+  if (!application) {
+    throw new ApiError(404, "Application not found.");
+  }
+
+  if (!canAccessApplication(application, req.user)) {
+    throw new ApiError(403, "You do not have permission to download this application.");
+  }
+
+  const universityId = resolveIdValue(application.university);
+  const [universityForm, universityProfile] = await Promise.all([
+    UniversityForm.findOne({ university: universityId }).select("fields").lean(),
+    UniversityProfile.findOne({ university: universityId }).lean(),
+  ]);
+
+  const pdfBuffer = await buildApplicationPdfBuffer({
+    application,
+    universityForm,
+    universityProfile,
+  });
+
+  const fileName = `${sanitizeDownloadFileName(application.applicationCode || application._id)}.pdf`;
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename=\"${fileName}\"`);
+  return res.status(200).send(pdfBuffer);
+});
+
+const addUniqueZipEntry = (entries, usedNames, entry) => {
+  const normalizedName = String(entry.name || "file.bin");
+  let candidate = normalizedName;
+  const extension = path.extname(normalizedName);
+  const stem = extension ? normalizedName.slice(0, -extension.length) : normalizedName;
+  let counter = 2;
+
+  while (usedNames.has(candidate.toLowerCase())) {
+    candidate = `${stem}-${counter}${extension}`;
+    counter += 1;
+  }
+
+  usedNames.add(candidate.toLowerCase());
+  entries.push({
+    ...entry,
+    name: candidate,
+  });
+};
+
+const downloadApplicationArchive = asyncHandler(async (req, res) => {
+  ensureObjectId(req.params.id, "Invalid application id.");
+
+  const application = await Application.findById(req.params.id).lean();
+  if (!application) {
+    throw new ApiError(404, "Application not found.");
+  }
+
+  if (
+    req.user.role !== ROLES.ADMIN &&
+    (req.user.role !== ROLES.UNIVERSITY ||
+      resolveIdValue(application.university) !== String(req.user._id))
+  ) {
+    throw new ApiError(403, "You can only download archives for your university applications.");
+  }
+
+  const universityId = resolveIdValue(application.university);
+  const [universityForm, universityProfile] = await Promise.all([
+    UniversityForm.findOne({ university: universityId }).select("fields").lean(),
+    UniversityProfile.findOne({ university: universityId }).lean(),
+  ]);
+
+  const entries = [];
+  const usedNames = new Set();
+  const warnings = [];
+  const archiveBaseName = sanitizeDownloadFileName(application.applicationCode || application._id);
+
+  const applicationPdf = await buildApplicationPdfBuffer({
+    application,
+    universityForm,
+    universityProfile,
+  });
+
+  addUniqueZipEntry(entries, usedNames, {
+    name: `application/${archiveBaseName}-application.pdf`,
+    bytes: applicationPdf,
+    modifiedAt: application.updatedAt || new Date(),
+  });
+
+  const uploadedFiles = collectApplicationUploadedFiles({
+    application,
+    formFields: Array.isArray(universityForm?.fields) ? universityForm.fields : [],
+  });
+
+  for (const file of uploadedFiles) {
+    try {
+      const loaded = await readDownloadableFile(file.source);
+      const extension = inferExtension({
+        mimeType: loaded.mimeType,
+        source: loaded.sourceName || file.source,
+      });
+      const label = sanitizeZipName(file.label || file.fieldPath || "document", "document");
+      addUniqueZipEntry(entries, usedNames, {
+        name: `documents/${label}.${extension}`,
+        bytes: loaded.bytes,
+        modifiedAt: application.updatedAt || new Date(),
+      });
+    } catch (error) {
+      warnings.push(`${file.label || file.fieldPath}: ${error?.message || "Unable to include file."}`);
+    }
+  }
+
+  if (application.payment?.proofFileUrl) {
+    try {
+      const loaded = await readDownloadableFile(application.payment.proofFileUrl);
+      const extension = inferExtension({
+        mimeType: loaded.mimeType,
+        source: application.payment.proofFileName || loaded.sourceName || application.payment.proofFileUrl,
+      });
+      addUniqueZipEntry(entries, usedNames, {
+        name: `payment/payment-screenshot.${extension}`,
+        bytes: loaded.bytes,
+        modifiedAt: application.payment.paidAt || application.updatedAt || new Date(),
+      });
+    } catch (error) {
+      warnings.push(`Payment screenshot: ${error?.message || "Unable to include file."}`);
+    }
+  } else {
+    warnings.push("Payment screenshot: no payment proof uploaded.");
+  }
+
+  if (warnings.length > 0) {
+    addUniqueZipEntry(entries, usedNames, {
+      name: "archive-warnings.txt",
+      bytes: Buffer.from(warnings.join("\n"), "utf8"),
+      modifiedAt: new Date(),
+    });
+  }
+
+  const zipBuffer = createZipArchive(entries);
+  const fileName = `${archiveBaseName}-application-package.zip`;
+  res.setHeader("Content-Type", "application/zip");
+  res.setHeader("Content-Disposition", `attachment; filename=\"${fileName}\"`);
+  return res.status(200).send(zipBuffer);
 });
 
 const payApplicationFee = asyncHandler(async (req, res) => {
   ensureObjectId(req.params.id, "Invalid application id.");
 
-  const { method, accountNumber, transactionReference } = req.body;
+  const {
+    method,
+    accountNumber = "",
+    transactionReference,
+    paymentProof,
+    paymentProofFileName,
+  } = req.body;
 
-  if (!transactionReference || !accountNumber) {
-    throw new ApiError(400, "Account/Card number and transaction reference are required.");
+  if (!transactionReference) {
+    throw new ApiError(400, "Transaction reference is required.");
+  }
+
+  if (!paymentProof) {
+    throw new ApiError(400, "Payment screenshot is required.");
   }
 
   const application = await Application.findById(req.params.id);
@@ -250,13 +719,23 @@ const payApplicationFee = asyncHandler(async (req, res) => {
     throw new ApiError(403, "You can only pay for your own applications.");
   }
 
-  const profile = await UniversityProfile.findOne({ university: application.university });
+  const profile = await UniversityProfile.findOne({ university: application.university })
+    .select("acceptApplicationsThroughUaams applicationEndDate programs")
+    .lean();
   ensureProgramAcceptingApplications({ profile, programName: application.program });
 
+  const proofFileUrl = await persistMaybeDataUrl({
+    value: paymentProof,
+    folder: `applications/${String(application._id)}/payment-proof`,
+    preferredName: paymentProofFileName || `payment-proof-${String(transactionReference || "submitted")}`,
+  });
+
   application.payment.status = "paid";
-  application.payment.method = method || "card";
+  application.payment.method = method || "bank";
   application.payment.accountLast4 = String(accountNumber).slice(-4);
   application.payment.transactionReference = String(transactionReference).trim();
+  application.payment.proofFileUrl = String(proofFileUrl || "").trim();
+  application.payment.proofFileName = String(paymentProofFileName || extractFileNameFromUrl(proofFileUrl) || "").trim();
   application.payment.paidAt = new Date();
   application.status = "pending";
 
@@ -298,13 +777,15 @@ const updateMyDraftApplication = asyncHandler(async (req, res) => {
   }
 
   const program = String(req.body?.program || "").trim();
-  const formData = req.body?.formData || {};
+  const formData = await normalizeApplicationFormData(req.body?.formData || {}, req.user._id);
 
   if (!program) {
     throw new ApiError(400, "Program is required.");
   }
 
-  const profile = await UniversityProfile.findOne({ university: application.university });
+  const profile = await UniversityProfile.findOne({ university: application.university })
+    .select("acceptApplicationsThroughUaams applicationEndDate programs")
+    .lean();
   ensureProgramAcceptingApplications({ profile, programName: program });
 
   const matricMarks = Number(formData["7"] || formData.matric || 0);
@@ -410,6 +891,7 @@ const getUniversityApplications = asyncHandler(async (req, res) => {
   const [total, applications] = await Promise.all([
     Application.countDocuments(query),
     Application.find(query)
+      .select(APPLICATION_LIST_PROJECTION)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -558,10 +1040,16 @@ const assignRollNumber = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Payment is not completed for this application.");
   }
 
+  const persistedSlipFileUrl = await persistMaybeDataUrl({
+    value: slipFileUrl,
+    folder: `applications/${String(application._id)}/roll-slips`,
+    preferredName: slipFileName || `roll-slip-${String(number || "assigned")}`,
+  });
+
   application.rollNumber = {
     assigned: true,
     number: String(number).trim(),
-    slipFileUrl: String(slipFileUrl || ""),
+    slipFileUrl: String(persistedSlipFileUrl || ""),
     slipFileName: String(slipFileName || ""),
     assignedAt: new Date(),
     assignedBy: req.user._id,
@@ -652,10 +1140,16 @@ const uploadAdmissionLetter = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Payment is not completed for this application.");
   }
 
+  const persistedLetterFileUrl = await persistMaybeDataUrl({
+    value: fileUrl,
+    folder: `applications/${String(application._id)}/admission-letters`,
+    preferredName: fileName || `admission-letter-${String(letterNumber || "issued")}`,
+  });
+
   application.admissionLetter = {
     issued: true,
     letterNumber: String(letterNumber).trim(),
-    fileUrl: String(fileUrl).trim(),
+    fileUrl: String(persistedLetterFileUrl || "").trim(),
     fileName: String(fileName || "").trim(),
     remarks: String(remarks || ""),
     sentToStudent: Boolean(sentToStudent),
@@ -715,4 +1209,6 @@ module.exports = {
   updateApplicationStatus,
   assignRollNumber,
   uploadAdmissionLetter,
+  downloadApplicationTemplatePdf,
+  downloadApplicationArchive,
 };

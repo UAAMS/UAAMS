@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bar,
@@ -14,9 +14,10 @@ import {
 } from "recharts";
 import { DashboardPageShell } from "../shared/DashboardPageShell";
 import { MetricGrid } from "../shared/MetricGrid";
-import { api } from "../../lib/apiClient";
-import { useAuth } from "../../context/AuthContext";
 import { onDataUpdated } from "../../lib/socketClient";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import { fetchUniversityApplications } from "../../store/slices/applicationsSlice";
+import { fetchUniversityDashboard } from "../../store/slices/dashboardsSlice";
 
 const routeMap = {
   applications: "/university/applications",
@@ -33,52 +34,36 @@ const formatDate = (value) => {
 };
 
 export const UniversityOverviewPage = () => {
+  const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
-  const [applications, setApplications] = useState([]);
-  const [profile, setProfile] = useState(null);
-  const [announcementsCount, setAnnouncementsCount] = useState(0);
+  const { items: applications, loading: applicationsLoading, error: applicationsError } = useAppSelector(
+    (state) => state.applications.university,
+  );
+  const {
+    data: dashboardData,
+    loading: dashboardLoading,
+    error: dashboardError,
+  } = useAppSelector((state) => state.dashboards.university);
+  const profile = dashboardData?.profile || null;
+  const announcementsCount = Number(dashboardData?.metrics?.publishedAnnouncements || 0);
   const [activeMetricLabel, setActiveMetricLabel] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  const loadOverview = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) {
-      setIsLoading(true);
-    }
-    setError("");
-    try {
-      const requests = [
-        api.get("/applications/university/me?limit=200"),
-        api.get("/universities/me/profile"),
-      ];
-
-      if (currentUser?.id) {
-        requests.push(api.get(`/announcements/university/${currentUser.id}`));
-      }
-
-      const [applicationsRes, profileRes, announcementsRes] = await Promise.all(requests);
-      setApplications(applicationsRes?.data?.applications || []);
-      setProfile(profileRes?.data?.profile || null);
-      setAnnouncementsCount((announcementsRes?.data?.announcements || []).length);
-    } catch (loadError) {
-      setError(loadError?.message || "Unable to load university dashboard data.");
-    } finally {
-      if (!silent) {
-        setIsLoading(false);
-      }
-    }
-  }, [currentUser?.id]);
+  const isLoading =
+    (applicationsLoading || dashboardLoading) &&
+    applications.length === 0 &&
+    !dashboardData;
+  const error = applicationsError || dashboardError;
 
   useEffect(() => {
-    loadOverview();
+    dispatch(fetchUniversityApplications());
+    dispatch(fetchUniversityDashboard());
     const unsubscribe = onDataUpdated((event) => {
       if (["applications", "announcements", "merit-lists", "programs"].includes(event?.resource)) {
-        loadOverview({ silent: true });
+        dispatch(fetchUniversityApplications());
+        dispatch(fetchUniversityDashboard());
       }
     });
     return () => unsubscribe();
-  }, [loadOverview]);
+  }, [dispatch]);
 
   const metrics = useMemo(() => {
     const pending = applications.filter((item) => item.status === "pending").length;
@@ -86,14 +71,15 @@ export const UniversityOverviewPage = () => {
     const accepted = applications.filter((item) =>
       ["accepted", "assigned", "finalized"].includes(item.status),
     ).length;
-    const activePrograms = Array.isArray(profile?.programs)
-      ? profile.programs.length
-      : Number(profile?.totalPrograms || 0);
+    const activePrograms = Number(
+      dashboardData?.metrics?.activePrograms ||
+        (Array.isArray(profile?.programs) ? profile.programs.length : profile?.totalPrograms || 0),
+    );
 
     return [
       {
         label: "Total Applications",
-        value: String(applications.length),
+        value: String(Number(dashboardData?.metrics?.totalApplications || applications.length)),
         trend: `${pending + underReview} pending review`,
       },
       {
@@ -112,7 +98,15 @@ export const UniversityOverviewPage = () => {
         trend: `Application fee PKR ${Number(profile?.applicationFee || 0).toLocaleString()}`,
       },
     ];
-  }, [announcementsCount, applications, profile?.applicationFee, profile?.programs, profile?.totalPrograms]);
+  }, [
+    announcementsCount,
+    applications,
+    dashboardData?.metrics?.activePrograms,
+    dashboardData?.metrics?.totalApplications,
+    profile?.applicationFee,
+    profile?.programs,
+    profile?.totalPrograms,
+  ]);
 
   useEffect(() => {
     if (metrics.length > 0 && !metrics.some((item) => item.label === activeMetricLabel)) {
@@ -120,14 +114,18 @@ export const UniversityOverviewPage = () => {
     }
   }, [metrics, activeMetricLabel]);
 
-  const recentApplications = useMemo(
-    () =>
-      applications
-        .slice()
-        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
-        .slice(0, 5),
-    [applications],
-  );
+  const recentApplications = useMemo(() => {
+    const recentFromDashboard = Array.isArray(dashboardData?.recentApplications)
+      ? dashboardData.recentApplications
+      : [];
+    if (recentFromDashboard.length > 0) {
+      return recentFromDashboard;
+    }
+    return applications
+      .slice()
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      .slice(0, 5);
+  }, [applications, dashboardData?.recentApplications]);
 
   const applicationsByProgram = useMemo(() => {
     const map = new Map();
@@ -157,9 +155,10 @@ export const UniversityOverviewPage = () => {
       ["pending", "under-review"].includes(item.status),
     ).length;
     const rejected = applications.filter((item) => item.status === "rejected").length;
-    const activePrograms = Array.isArray(profile?.programs)
-      ? profile.programs.length
-      : Number(profile?.totalPrograms || 0);
+    const activePrograms = Number(
+      dashboardData?.metrics?.activePrograms ||
+        (Array.isArray(profile?.programs) ? profile.programs.length : profile?.totalPrograms || 0),
+    );
 
     switch (activeMetricLabel) {
       case "Total Applications":
@@ -183,7 +182,15 @@ export const UniversityOverviewPage = () => {
       default:
         return [];
     }
-  }, [activeMetricLabel, announcementsCount, applications, profile?.programs, profile?.totalPrograms, statusChartData]);
+  }, [
+    activeMetricLabel,
+    announcementsCount,
+    applications,
+    dashboardData?.metrics?.activePrograms,
+    profile?.programs,
+    profile?.totalPrograms,
+    statusChartData,
+  ]);
 
   const statusColors = ["#0ea5e9", "#f59e0b", "#22c55e", "#ef4444", "#6366f1", "#16a34a"];
 
@@ -275,11 +282,13 @@ export const UniversityOverviewPage = () => {
           ) : (
             <div className="space-y-3">
               {recentApplications.map((item) => (
-                <div key={item._id} className="rounded-lg bg-slate-50 p-3">
-                  <div className="text-sm text-slate-900">{item.studentName}</div>
-                  <div className="text-xs text-slate-600">{item.program}</div>
+                <div key={item._id || item.id} className="rounded-lg bg-slate-50 p-3">
+                  <div className="text-sm text-slate-900">
+                    {item.studentName || item.student?.name || "Student"}
+                  </div>
+                  <div className="text-xs text-slate-600">{item.program || "Program"}</div>
                   <div className="mt-1 text-xs text-slate-500">
-                    {item.status} | {formatDate(item.appliedAt || item.createdAt)}
+                    {item.status || "pending"} | {formatDate(item.appliedAt || item.createdAt)}
                   </div>
                 </div>
               ))}

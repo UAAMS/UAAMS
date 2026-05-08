@@ -1,8 +1,22 @@
+import { lazy } from "react";
 import {BookOpen,Building2,Home,Users,} from "lucide-react";
-import { AllBloggersManagement } from "../components/admin/AllBloggersManagement";
-import { StudentManagement } from "../components/admin/StudentManagement";
-import { UniversityManagement } from "../components/admin/UniversityManagement";
-import { AdminOverviewPage } from "../pages/admin/AdminOverviewPage";
+
+const lazyNamed = (loader, exportName) =>
+  lazy(() => loader().then((module) => ({ default: module[exportName] })));
+
+const AllBloggersManagement = lazyNamed(
+  () => import("../components/admin/AllBloggersManagement"),
+  "AllBloggersManagement",
+);
+const StudentManagement = lazyNamed(
+  () => import("../components/admin/StudentManagement"),
+  "StudentManagement",
+);
+const UniversityManagement = lazyNamed(
+  () => import("../components/admin/UniversityManagement"),
+  "UniversityManagement",
+);
+const AdminOverviewPage = lazyNamed(() => import("../pages/admin/AdminOverviewPage"), "AdminOverviewPage");
 
 export const adminNavItems = [
   { to: "/admin", label: "Overview", icon: Home, end: true },

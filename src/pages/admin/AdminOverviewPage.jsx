@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -12,45 +12,33 @@ import {
 } from "recharts";
 import { DashboardPageShell } from "../shared/DashboardPageShell";
 import { MetricGrid } from "../shared/MetricGrid";
-import { api } from "../../lib/apiClient";
 import { onDataUpdated } from "../../lib/socketClient";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import { fetchAdminDashboard } from "../../store/slices/dashboardsSlice";
 
 export const AdminOverviewPage = () => {
-  const [stats, setStats] = useState(null);
+  const dispatch = useAppDispatch();
+  const {
+    data: stats,
+    loading: dashboardLoading,
+    error,
+  } = useAppSelector((state) => state.dashboards.admin);
   const [activeMetricLabel, setActiveMetricLabel] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  const loadStats = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) {
-      setIsLoading(true);
-    }
-    setError("");
-    try {
-      const response = await api.get("/admin/stats");
-      setStats(response?.data || null);
-    } catch (loadError) {
-      setError(loadError?.message || "Unable to load admin dashboard stats.");
-    } finally {
-      if (!silent) {
-        setIsLoading(false);
-      }
-    }
-  }, []);
+  const isLoading = dashboardLoading && !stats;
 
   useEffect(() => {
-    loadStats();
+    dispatch(fetchAdminDashboard());
     const unsubscribe = onDataUpdated((event) => {
       if (
         ["applications", "announcements", "blogs", "bloggers", "programs", "universities"].includes(
           event?.resource,
         )
       ) {
-        loadStats({ silent: true });
+        dispatch(fetchAdminDashboard());
       }
     });
     return () => unsubscribe();
-  }, [loadStats]);
+  }, [dispatch]);
 
   const metrics = useMemo(() => {
     if (!stats) {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BookOpen,
   Calendar,
@@ -14,19 +14,16 @@ import {
 import { Badge } from "../ui/badge";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
-import { api } from "../../lib/apiClient";
 import { onDataUpdated } from "../../lib/socketClient";
-
-const formatDate = (value) => {
-  if (!value) return "N/A";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "N/A";
-  return date.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-};
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import {
+  addBlogComment,
+  fetchBlogComments,
+  fetchStudentBlogs,
+  markBlogPostViewed,
+  toggleBlogCommentLike,
+  toggleBlogPostLike,
+} from "../../store/slices/blogsSlice";
 
 const formatDateTime = (value) => {
   if (!value) return "Just now";
@@ -41,124 +38,62 @@ const formatDateTime = (value) => {
   });
 };
 
-const normalizePost = (item) => ({
-  id: String(item?._id || item?.id || ""),
-  title: item?.title || "",
-  excerpt: item?.excerpt || "",
-  content: item?.content || "",
-  author: item?.author?.name || "University Representative",
-  authorTitle: "University Representative",
-  university: item?.university?.name || "University",
-  publishDate: formatDate(item?.publishedAt || item?.createdAt),
-  readTime: item?.readTime || "1 min",
-  category: item?.category || "General",
-  tags: Array.isArray(item?.tags) ? item.tags : [],
-  imageUrl: item?.imageUrl || "",
-  views: Number(item?.views || 0),
-  likesCount: Number(item?.likesCount || 0),
-  likedByMe: Boolean(item?.likedByMe),
-  commentsCount: Number(item?.commentsCount || 0),
-  repliesCount: Number(item?.repliesCount || 0),
-});
-
 function StudentBlog() {
+  const dispatch = useAppDispatch();
+  const {
+    posts,
+    postsLoading: isLoading,
+    postsError: error,
+    commentsByPost,
+    loadingCommentsByPost,
+    commentErrorsByPost,
+    postingCommentByPost,
+  } = useAppSelector((state) => state.blogs);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedPostId, setSelectedPostId] = useState("");
-
-  const [posts, setPosts] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  const [comments, setComments] = useState([]);
-  const [isLoadingComments, setIsLoadingComments] = useState(false);
-  const [commentError, setCommentError] = useState("");
   const [newComment, setNewComment] = useState("");
   const [replyDrafts, setReplyDrafts] = useState({});
   const [activeReplyInput, setActiveReplyInput] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const loadPosts = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) {
-      setIsLoading(true);
-    }
-    setError("");
-
-    try {
-      const response = await api.get("/students/me/blogs?limit=200");
-      const items = response?.data?.posts || [];
-      setPosts(items.map(normalizePost));
-    } catch (loadError) {
-      setError(loadError?.message || "Unable to load blog posts.");
-    } finally {
-      if (!silent) {
-        setIsLoading(false);
-      }
-    }
-  }, []);
-
-  const loadComments = useCallback(async (postId, { silent = false } = {}) => {
-    if (!postId) return;
-    if (!silent) {
-      setIsLoadingComments(true);
-    }
-    setCommentError("");
-
-    try {
-      const response = await api.get(`/students/blogs/${postId}/comments`);
-      const nextComments = Array.isArray(response?.data?.comments) ? response.data.comments : [];
-      const postInteraction = response?.data?.postInteraction || {};
-
-      setComments(nextComments);
-      setPosts((previous) =>
-        previous.map((item) =>
-          item.id === postId
-            ? {
-                ...item,
-                likesCount: Number(postInteraction.likesCount ?? item.likesCount),
-                likedByMe: Boolean(postInteraction.likedByMe ?? item.likedByMe),
-                commentsCount: countRootComments(nextComments),
-                repliesCount: countReplies(nextComments),
-              }
-            : item,
-        ),
-      );
-    } catch (loadError) {
-      setCommentError(loadError?.message || "Unable to load comments.");
-    } finally {
-      if (!silent) {
-        setIsLoadingComments(false);
-      }
-    }
-  }, []);
+  const [actionError, setActionError] = useState("");
+  const comments = useMemo(
+    () => (selectedPostId ? commentsByPost[selectedPostId] || [] : []),
+    [commentsByPost, selectedPostId],
+  );
+  const isLoadingComments = Boolean(
+    selectedPostId ? loadingCommentsByPost[selectedPostId] : false,
+  );
+  const commentError = selectedPostId ? commentErrorsByPost[selectedPostId] || "" : "";
+  const isSubmitting = Boolean(selectedPostId ? postingCommentByPost[selectedPostId] : false);
 
   useEffect(() => {
-    loadPosts();
+    dispatch(fetchStudentBlogs());
     const unsubscribe = onDataUpdated((event) => {
       if (event?.resource === "blogs" || event?.resource === "blog-interactions") {
-        loadPosts({ silent: true });
+        dispatch(fetchStudentBlogs());
         if (selectedPostId) {
-          loadComments(selectedPostId, { silent: true });
+          dispatch(fetchBlogComments(selectedPostId));
         }
       }
     });
 
     return () => unsubscribe();
-  }, [loadPosts, loadComments, selectedPostId]);
+  }, [dispatch, selectedPostId]);
 
   useEffect(() => {
     if (!selectedPostId) return;
     const exists = posts.some((post) => post.id === selectedPostId);
     if (!exists) {
       setSelectedPostId("");
-      setComments([]);
+      setActionError("");
     }
   }, [posts, selectedPostId]);
 
   useEffect(() => {
     if (!selectedPostId) return;
-    loadComments(selectedPostId);
-  }, [selectedPostId, loadComments]);
+    dispatch(markBlogPostViewed(selectedPostId));
+    dispatch(fetchBlogComments(selectedPostId));
+  }, [dispatch, selectedPostId]);
 
   const selectedPost = useMemo(
     () => posts.find((post) => post.id === selectedPostId) || null,
@@ -185,22 +120,11 @@ function StudentBlog() {
   }, [posts, searchQuery, selectedCategory]);
 
   const handleTogglePostLike = async (postId) => {
+    setActionError("");
     try {
-      const response = await api.patch(`/students/blogs/${postId}/like`);
-      const data = response?.data || {};
-      setPosts((previous) =>
-        previous.map((post) =>
-          post.id === postId
-            ? {
-                ...post,
-                likesCount: Number(data.likesCount ?? post.likesCount),
-                likedByMe: Boolean(data.likedByMe ?? post.likedByMe),
-              }
-            : post,
-        ),
-      );
+      await dispatch(toggleBlogPostLike(postId)).unwrap();
     } catch (updateError) {
-      setCommentError(updateError?.message || "Unable to update like.");
+      setActionError(updateError?.message || "Unable to update like.");
     }
   };
 
@@ -208,16 +132,13 @@ function StudentBlog() {
     const content = String(newComment || "").trim();
     if (!content || !selectedPostId) return;
 
-    setIsSubmitting(true);
-    setCommentError("");
+    setActionError("");
     try {
-      await api.post(`/students/blogs/${selectedPostId}/comments`, { content });
+      await dispatch(addBlogComment({ postId: selectedPostId, content })).unwrap();
+      dispatch(fetchStudentBlogs());
       setNewComment("");
-      await Promise.all([loadComments(selectedPostId, { silent: true }), loadPosts({ silent: true })]);
     } catch (submitError) {
-      setCommentError(submitError?.message || "Unable to add comment.");
-    } finally {
-      setIsSubmitting(false);
+      setActionError(submitError?.message || "Unable to add comment.");
     }
   };
 
@@ -225,32 +146,34 @@ function StudentBlog() {
     const content = String(replyDrafts[parentCommentId] || "").trim();
     if (!content || !selectedPostId) return;
 
-    setIsSubmitting(true);
-    setCommentError("");
+    setActionError("");
     try {
-      await api.post(`/students/blogs/${selectedPostId}/comments`, {
-        content,
-        parentCommentId,
-      });
+      await dispatch(
+        addBlogComment({
+          postId: selectedPostId,
+          content,
+          parentCommentId,
+        }),
+      ).unwrap();
+      dispatch(fetchStudentBlogs());
       setReplyDrafts((previous) => ({ ...previous, [parentCommentId]: "" }));
       setActiveReplyInput("");
-      await Promise.all([loadComments(selectedPostId, { silent: true }), loadPosts({ silent: true })]);
     } catch (submitError) {
-      setCommentError(submitError?.message || "Unable to add reply.");
-    } finally {
-      setIsSubmitting(false);
+      setActionError(submitError?.message || "Unable to add reply.");
     }
   };
 
   const handleToggleCommentLike = async (commentId) => {
     if (!selectedPostId) return;
-    setCommentError("");
+    setActionError("");
 
     try {
-      await api.patch(`/students/blog-comments/${commentId}/like`);
-      await loadComments(selectedPostId, { silent: true });
+      await dispatch(
+        toggleBlogCommentLike({ postId: selectedPostId, commentId }),
+      ).unwrap();
+      dispatch(fetchStudentBlogs());
     } catch (updateError) {
-      setCommentError(updateError?.message || "Unable to update comment like.");
+      setActionError(updateError?.message || "Unable to update comment like.");
     }
   };
 
@@ -261,8 +184,7 @@ function StudentBlog() {
           type="button"
           onClick={() => {
             setSelectedPostId("");
-            setComments([]);
-            setCommentError("");
+            setActionError("");
           }}
           className="flex items-center gap-2 text-emerald-600 hover:text-emerald-700"
         >
@@ -372,8 +294,10 @@ function StudentBlog() {
                 </button>
               </div>
 
-              {commentError ? (
-                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{commentError}</p>
+              {actionError || commentError ? (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {actionError || commentError}
+                </p>
               ) : null}
 
               {isLoadingComments ? (
@@ -648,13 +572,5 @@ function CommentItem({
     </div>
   );
 }
-
-const countRootComments = (items = []) => items.length;
-
-const countReplies = (items = []) =>
-  items.reduce((sum, item) => {
-    const directReplies = Array.isArray(item?.replies) ? item.replies.length : 0;
-    return sum + directReplies;
-  }, 0);
 
 export { StudentBlog };

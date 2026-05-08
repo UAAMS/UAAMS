@@ -1,18 +1,52 @@
-import {Bell,BookOpen,FileEdit,Hash,Home,PenTool,ScrollText,Settings,Users,} from "lucide-react";
-import { AdmissionLetterManagement } from "../components/university/AdmissionLetterManagement";
-import { FormConfiguration } from "../components/university/FormConfiguration";
-import { RollNumberManagement } from "../components/university/RollNumberManagement";
-import { UniversityAnnouncements } from "../components/university/UniversityAnnouncements";
-import { UniversityBlog } from "../components/university/UniversityBlog";
-import { UniversitySettings } from "../components/university/UniversitySettings";
-import { UniversityApplicationsPage } from "../pages/university/UniversityApplicationsPage";
-import { UniversityBloggerManagementPage } from "../pages/university/UniversityBloggerManagementPage";
-import { UniversityOverviewPage } from "../pages/university/UniversityOverviewPage";
+import { lazy } from "react";
+import {Bell,BookOpen,CreditCard,FileEdit,Hash,Home,PenTool,ScrollText,Settings,Users,} from "lucide-react";
+
+const lazyNamed = (loader, exportName) =>
+  lazy(() => loader().then((module) => ({ default: module[exportName] })));
+
+const AdmissionLetterManagement = lazyNamed(
+  () => import("../components/university/AdmissionLetterManagement"),
+  "AdmissionLetterManagement",
+);
+const FormConfiguration = lazyNamed(
+  () => import("../components/university/FormConfiguration"),
+  "FormConfiguration",
+);
+const RollNumberManagement = lazyNamed(
+  () => import("../components/university/RollNumberManagement"),
+  "RollNumberManagement",
+);
+const UniversityAnnouncements = lazyNamed(
+  () => import("../components/university/UniversityAnnouncements"),
+  "UniversityAnnouncements",
+);
+const UniversityBlog = lazyNamed(() => import("../components/university/UniversityBlog"), "UniversityBlog");
+const UniversitySettings = lazyNamed(
+  () => import("../components/university/UniversitySettings"),
+  "UniversitySettings",
+);
+const PaymentSettings = lazyNamed(
+  () => import("../components/university/PaymentSettings"),
+  "PaymentSettings",
+);
+const UniversityApplicationsPage = lazyNamed(
+  () => import("../pages/university/UniversityApplicationsPage"),
+  "UniversityApplicationsPage",
+);
+const UniversityBloggerManagementPage = lazyNamed(
+  () => import("../pages/university/UniversityBloggerManagementPage"),
+  "UniversityBloggerManagementPage",
+);
+const UniversityOverviewPage = lazyNamed(
+  () => import("../pages/university/UniversityOverviewPage"),
+  "UniversityOverviewPage",
+);
 
 export const universityNavItems = [
   { to: "/university", label: "Overview", icon: Home, end: true },
   { to: "/university/applications", label: "Applications", icon: Users },
   { to: "/university/form-builder", label: "Form & Programs", icon: FileEdit },
+  { to: "/university/payments", label: "Payments", icon: CreditCard },
   { to: "/university/announcements", label: "Announcements", icon: Bell },
   { to: "/university/blog", label: "Blog", icon: BookOpen },
   { to: "/university/bloggers", label: "Bloggers", icon: PenTool },
@@ -27,6 +61,7 @@ export const universityRoutePages = [
   { path: "applications", element: <UniversityApplicationsPage /> },
   { path: "form-builder", element: <FormConfiguration /> },
   { path: "form-config", element: <FormConfiguration /> },
+  { path: "payments", element: <PaymentSettings /> },
   { path: "announcements", element: <UniversityAnnouncements /> },
   { path: "blog", element: <UniversityBlog /> },
   { path: "bloggers", element: <UniversityBloggerManagementPage /> },

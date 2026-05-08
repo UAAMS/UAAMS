@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { PasswordField } from "../shared/PasswordField";
-import { api } from "../../lib/apiClient";
 import { onDataUpdated } from "../../lib/socketClient";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import {
+  clearUniversityBloggerCredentials,
+  clearUniversityBloggersMessages,
+  createUniversityBlogger,
+  deleteUniversityBlogger,
+  fetchUniversityBloggers,
+  toggleUniversityBloggerStatus,
+} from "../../store/slices/universityBloggersManagementSlice";
 
 const initialFormState = {
   name: "",
@@ -11,20 +19,6 @@ const initialFormState = {
   phone: "",
   password: "",
 };
-
-const normalizeBlogger = (item) => ({
-  id: String(item?._id || item?.id || ""),
-  name: item?.name || "",
-  email: item?.email || "",
-  username: item?.username || "",
-  phone: item?.phone || "",
-  status: item?.status || "active",
-  managedUniversity:
-    typeof item?.managedUniversity === "object"
-      ? item.managedUniversity?.name || ""
-      : "",
-  createdAt: item?.createdAt || null,
-});
 
 const formatDate = (value) => {
   if (!value) return "N/A";
@@ -38,9 +32,21 @@ const formatDate = (value) => {
 };
 
 function BloggerManagement() {
-  const [bloggers, setBloggers] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const dispatch = useAppDispatch();
+  const {
+    items: bloggers,
+    loading: isLoading,
+    creating: isCreating,
+    error: loadError,
+    createError,
+    statusError,
+    deleteError,
+    statusMutatingIds,
+    deletingIds,
+    credentials,
+    statusMessage,
+  } = useAppSelector((state) => state.universityBloggersManagement);
+  const error = deleteError || statusError || loadError;
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -48,37 +54,19 @@ function BloggerManagement() {
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState(initialFormState);
   const [formError, setFormError] = useState("");
-  const [isCreating, setIsCreating] = useState(false);
-  const [statusMessage, setStatusMessage] = useState("");
-
-  const [credentials, setCredentials] = useState(null);
-
-  const loadBloggers = async () => {
-    setIsLoading(true);
-    setError("");
-    try {
-      const response = await api.get("/universities/me/bloggers");
-      const items = response?.data?.bloggers || [];
-      setBloggers(items.map(normalizeBlogger));
-    } catch (loadError) {
-      setError(loadError?.message || "Unable to load bloggers.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   useEffect(() => {
-    loadBloggers();
+    dispatch(fetchUniversityBloggers());
     const unsubscribe = onDataUpdated((event) => {
       if (event?.resource === "bloggers") {
-        loadBloggers();
+        dispatch(fetchUniversityBloggers());
       }
     });
 
     return () => {
       unsubscribe();
     };
-  }, []);
+  }, [dispatch]);
 
   const filteredBloggers = useMemo(() => {
     const search = searchTerm.trim().toLowerCase();
@@ -105,12 +93,14 @@ function BloggerManagement() {
   );
 
   const openCreateForm = () => {
+    dispatch(clearUniversityBloggersMessages());
     setShowForm(true);
     setFormData(initialFormState);
     setFormError("");
   };
 
   const closeCreateForm = () => {
+    dispatch(clearUniversityBloggersMessages());
     setShowForm(false);
     setFormData(initialFormState);
     setFormError("");
@@ -118,8 +108,8 @@ function BloggerManagement() {
 
   const handleCreate = async (event) => {
     event.preventDefault();
+    dispatch(clearUniversityBloggersMessages());
     setFormError("");
-    setIsCreating(true);
 
     try {
       const payload = {
@@ -130,39 +120,26 @@ function BloggerManagement() {
         password: formData.password,
       };
 
-      const response = await api.post("/universities/me/bloggers", payload);
-      const createdBlogger = normalizeBlogger(response?.data?.blogger || {});
-      const createdCredentials = response?.data?.credentials || null;
-      const emailDelivery = response?.data?.emailDelivery || null;
-
-      setBloggers((previous) => [createdBlogger, ...previous]);
-      setCredentials(createdCredentials);
-      setStatusMessage(
-        emailDelivery?.sent
-          ? "Blogger created and credential email sent."
-          : emailDelivery?.reason || "Blogger created. Credential email could not be sent.",
-      );
+      await dispatch(createUniversityBlogger(payload)).unwrap();
       closeCreateForm();
     } catch (createError) {
-      setFormError(createError?.message || "Unable to create blogger.");
-    } finally {
-      setIsCreating(false);
+      const message =
+        typeof createError === "string" ? createError : createError?.message || "Unable to create blogger.";
+      setFormError(message);
     }
   };
 
   const handleToggleStatus = async (blogger) => {
     const nextStatus = blogger.status === "active" ? "inactive" : "active";
     try {
-      const response = await api.patch(
-        `/universities/me/bloggers/${blogger.id}/status`,
-        { status: nextStatus }
-      );
-      const updated = normalizeBlogger(response?.data?.blogger || {});
-      setBloggers((previous) =>
-        previous.map((item) => (item.id === blogger.id ? { ...item, ...updated } : item))
-      );
-    } catch (statusError) {
-      setError(statusError?.message || "Unable to update blogger status.");
+      await dispatch(
+        toggleUniversityBloggerStatus({
+          bloggerId: blogger.id,
+          status: nextStatus,
+        }),
+      ).unwrap();
+    } catch {
+      // Errors are surfaced from Redux state.
     }
   };
 
@@ -173,13 +150,14 @@ function BloggerManagement() {
     if (!shouldDelete) return;
 
     try {
-      await api.del(`/universities/me/bloggers/${blogger.id}`);
-      setBloggers((previous) => previous.filter((item) => item.id !== blogger.id));
-      setStatusMessage("Blogger account deleted successfully.");
-    } catch (deleteError) {
-      setError(deleteError?.message || "Unable to delete blogger account.");
+      await dispatch(deleteUniversityBlogger(blogger.id)).unwrap();
+    } catch {
+      // Errors are surfaced from Redux state.
     }
   };
+
+  const isStatusMutating = (bloggerId) => statusMutatingIds.includes(String(bloggerId));
+  const isDeleting = (bloggerId) => deletingIds.includes(String(bloggerId));
 
   return (
     <div className="space-y-6">
@@ -276,17 +254,23 @@ function BloggerManagement() {
                   <button
                     type="button"
                     onClick={() => handleToggleStatus(blogger)}
-                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                    disabled={isStatusMutating(blogger.id) || isDeleting(blogger.id)}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                   >
-                    {blogger.status === "active" ? "Deactivate" : "Activate"}
+                    {isStatusMutating(blogger.id)
+                      ? "Updating..."
+                      : blogger.status === "active"
+                        ? "Deactivate"
+                        : "Activate"}
                   </button>
                   <button
                     type="button"
                     onClick={() => handleDeleteBlogger(blogger)}
-                    className="rounded-lg border border-red-200 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 inline-flex items-center gap-1"
+                    disabled={isDeleting(blogger.id) || isStatusMutating(blogger.id)}
+                    className="rounded-lg border border-red-200 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 inline-flex items-center gap-1 disabled:opacity-60"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                    Delete
+                    {isDeleting(blogger.id) ? "Deleting..." : "Delete"}
                   </button>
                 </div>
               </div>
@@ -307,9 +291,11 @@ function BloggerManagement() {
                   <input
                     type="text"
                     value={formData.name}
-                    onChange={(event) =>
-                      setFormData((previous) => ({ ...previous, name: event.target.value }))
-                    }
+                    onChange={(event) => {
+                      dispatch(clearUniversityBloggersMessages());
+                      setFormError("");
+                      setFormData((previous) => ({ ...previous, name: event.target.value }));
+                    }}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
@@ -319,9 +305,11 @@ function BloggerManagement() {
                   <input
                     type="email"
                     value={formData.email}
-                    onChange={(event) =>
-                      setFormData((previous) => ({ ...previous, email: event.target.value }))
-                    }
+                    onChange={(event) => {
+                      dispatch(clearUniversityBloggersMessages());
+                      setFormError("");
+                      setFormData((previous) => ({ ...previous, email: event.target.value }));
+                    }}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
@@ -334,9 +322,11 @@ function BloggerManagement() {
                   <input
                     type="text"
                     value={formData.username}
-                    onChange={(event) =>
-                      setFormData((previous) => ({ ...previous, username: event.target.value }))
-                    }
+                    onChange={(event) => {
+                      dispatch(clearUniversityBloggersMessages());
+                      setFormError("");
+                      setFormData((previous) => ({ ...previous, username: event.target.value }));
+                    }}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -345,9 +335,11 @@ function BloggerManagement() {
                   <input
                     type="text"
                     value={formData.phone}
-                    onChange={(event) =>
-                      setFormData((previous) => ({ ...previous, phone: event.target.value }))
-                    }
+                    onChange={(event) => {
+                      dispatch(clearUniversityBloggersMessages());
+                      setFormError("");
+                      setFormData((previous) => ({ ...previous, phone: event.target.value }));
+                    }}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -357,18 +349,20 @@ function BloggerManagement() {
                 <label className="mb-1 block text-sm text-slate-700">Password</label>
                 <PasswordField
                   value={formData.password}
-                  onChange={(event) =>
-                    setFormData((previous) => ({ ...previous, password: event.target.value }))
-                  }
+                  onChange={(event) => {
+                    dispatch(clearUniversityBloggersMessages());
+                    setFormError("");
+                    setFormData((previous) => ({ ...previous, password: event.target.value }));
+                  }}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                   autoComplete="new-password"
                 />
               </div>
 
-              {formError ? (
+              {formError || createError ? (
                 <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                  {formError}
+                  {formError || createError}
                 </p>
               ) : null}
 
@@ -419,7 +413,7 @@ function BloggerManagement() {
             <div className="mt-4 flex justify-end">
               <button
                 type="button"
-                onClick={() => setCredentials(null)}
+                onClick={() => dispatch(clearUniversityBloggerCredentials())}
                 className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
               >
                 Done

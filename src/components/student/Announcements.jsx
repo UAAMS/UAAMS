@@ -1,74 +1,31 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Bell, Calendar, Download, Paperclip, School, TrendingUp } from "lucide-react";
-import { api } from "../../lib/apiClient";
 import { onDataUpdated } from "../../lib/socketClient";
-
-const formatDate = (value) => {
-  if (!value) return "N/A";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "N/A";
-  return date.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-};
-
-const normalizeAnnouncement = (item) => ({
-  id: String(item?._id || item?.id || ""),
-  university:
-    (typeof item?.university === "object" ? item?.university?.name : "") || "University",
-  title: item?.title || "",
-  content: item?.content || "",
-  date: formatDate(item?.publishedAt || item?.createdAt),
-  type: item?.type || "general",
-  category: item?.category || "General",
-  attachmentUrl: item?.attachmentUrl || "",
-  attachmentName: item?.attachmentName || "",
-});
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import { fetchStudentAnnouncements } from "../../store/slices/announcementsSlice";
 
 function Announcements() {
+  const dispatch = useAppDispatch();
+  const {
+    items: announcements,
+    loading: isLoading,
+    error,
+  } = useAppSelector((state) => state.announcements);
   const [selectedType, setSelectedType] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
-  const [announcements, setAnnouncements] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
 
   useEffect(() => {
-    let isMounted = true;
-
-    const loadAnnouncements = async ({ silent = false } = {}) => {
-      if (!silent) {
-        setIsLoading(true);
-      }
-      setError("");
-      try {
-        const response = await api.get("/students/me/announcements?limit=200");
-        const items = response?.data?.announcements || [];
-        if (!isMounted) return;
-        setAnnouncements(items.map(normalizeAnnouncement));
-      } catch (loadError) {
-        if (!isMounted) return;
-        setError(loadError?.message || "Unable to load announcements.");
-      } finally {
-        if (isMounted && !silent) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadAnnouncements();
+    dispatch(fetchStudentAnnouncements());
     const unsubscribe = onDataUpdated((event) => {
       if (event?.resource === "announcements") {
-        loadAnnouncements({ silent: true });
+        dispatch(fetchStudentAnnouncements());
       }
     });
 
     return () => {
-      isMounted = false;
       unsubscribe();
     };
-  }, []);
+  }, [dispatch]);
 
   const filteredAnnouncements = useMemo(
     () =>

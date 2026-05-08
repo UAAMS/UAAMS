@@ -6,6 +6,7 @@ const ApiError = require("../../utils/ApiError");
 const asyncHandler = require("../../utils/asyncHandler");
 const getPagination = require("../../utils/pagination");
 const { emitDataUpdate } = require("../../utils/socket");
+const { persistMaybeDataUrl } = require("../../utils/fileStorage");
 
 const ensureObjectId = (id, message = "Invalid resource id.") => {
   if (!mongoose.isValidObjectId(id)) {
@@ -363,6 +364,11 @@ const createMyPost = asyncHandler(async (req, res) => {
   }
 
   const normalizedStatus = status === "published" ? "published" : "draft";
+  const persistedImageUrl = await persistMaybeDataUrl({
+    value: imageUrl,
+    folder: `blogs/${String(university._id)}`,
+    preferredName: title || "blog-image",
+  });
 
   const post = await BlogPost.create({
     author: req.user._id,
@@ -377,7 +383,7 @@ const createMyPost = asyncHandler(async (req, res) => {
           .split(",")
           .map((item) => item.trim())
           .filter(Boolean),
-    imageUrl: String(imageUrl || ""),
+    imageUrl: String(persistedImageUrl || ""),
     status: normalizedStatus,
     readTime: calculateReadTime(content),
     publishedAt: normalizedStatus === "published" ? new Date() : null,
@@ -429,6 +435,15 @@ const updateMyPost = asyncHandler(async (req, res) => {
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updates, "imageUrl")) {
+    updates.imageUrl = await persistMaybeDataUrl({
+      value: updates.imageUrl,
+      folder: `blogs/${String(post.university)}`,
+      preferredName: updates.title || post.title || "blog-image",
+    });
+    updates.imageUrl = String(updates.imageUrl || "");
   }
 
   if (updates.status === "published" && !post.publishedAt) {

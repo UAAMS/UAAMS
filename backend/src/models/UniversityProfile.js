@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { queueStructuredSync } = require("../structured/queue");
 
 const programSchema = new mongoose.Schema(
   {
@@ -19,6 +20,26 @@ const notificationSchema = new mongoose.Schema(
     smsUrgentUpdates: { type: Boolean, default: false },
   },
   { _id: false }
+);
+
+const paymentMethodSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: ["bank", "wallet", "card", "other"],
+      default: "bank",
+    },
+    title: { type: String, trim: true, default: "" },
+    accountTitle: { type: String, trim: true, default: "" },
+    bankName: { type: String, trim: true, default: "" },
+    accountNumber: { type: String, trim: true, default: "" },
+    iban: { type: String, trim: true, default: "" },
+    walletName: { type: String, trim: true, default: "" },
+    walletNumber: { type: String, trim: true, default: "" },
+    instructions: { type: String, default: "" },
+    isActive: { type: Boolean, default: true },
+  },
+  { _id: true }
 );
 
 const universityProfileSchema = new mongoose.Schema(
@@ -59,9 +80,50 @@ const universityProfileSchema = new mongoose.Schema(
     acceptApplicationsThroughUaams: { type: Boolean, default: true },
     allowAutoFillFromStudentProfile: { type: Boolean, default: true },
     programs: { type: [programSchema], default: [] },
+    paymentMethods: { type: [paymentMethodSchema], default: [] },
     notifications: { type: notificationSchema, default: () => ({}) },
   },
   { timestamps: true }
 );
+
+universityProfileSchema.index({ type: 1, city: 1 });
+universityProfileSchema.index({ universityName: 1 });
+universityProfileSchema.index({ applicationEndDate: 1 });
+universityProfileSchema.index({ "programs.name": 1 });
+universityProfileSchema.index({ "programs.isAdmissionOpen": 1, "programs.deadlineDate": 1 });
+
+const queueUniversityProfileSync = (action, universityId) => {
+  const entityId = String(universityId || "").trim();
+  if (!entityId) return;
+  void queueStructuredSync({ entityType: "universityProfile", entityId, action }).catch(() => {});
+};
+
+universityProfileSchema.post("save", function onSave(doc) {
+  queueUniversityProfileSync("upsert", doc?.university || this?.university);
+});
+
+universityProfileSchema.post("findOneAndUpdate", function onFindOneAndUpdate(doc) {
+  if (!doc?.university) return;
+  queueUniversityProfileSync("upsert", doc.university);
+});
+
+universityProfileSchema.post("findOneAndDelete", function onFindOneAndDelete(doc) {
+  if (!doc?.university) return;
+  queueUniversityProfileSync("delete", doc.university);
+});
+
+universityProfileSchema.post(
+  "deleteOne",
+  { document: true, query: false },
+  function onDeleteOneDocument(doc) {
+    queueUniversityProfileSync("delete", doc?.university || this?.university);
+  }
+);
+
+universityProfileSchema.post("deleteOne", { document: false, query: true }, function onDeleteOneQuery() {
+  const filter = this.getFilter ? this.getFilter() : {};
+  if (!filter?.university) return;
+  queueUniversityProfileSync("delete", filter.university);
+});
 
 module.exports = mongoose.model("UniversityProfile", universityProfileSchema);

@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { FormBuilder } from "../../components/university/FormBuilder";
 import { DashboardPageShell } from "../shared/DashboardPageShell";
-import { api } from "../../lib/apiClient";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import {
+  fetchUniversityFormSetup,
+  saveUniversityFormFields,
+} from "../../store/slices/universityFormSetupSlice";
 
 const formatDateTime = (value) => {
   if (!value) return "";
@@ -11,49 +15,25 @@ const formatDateTime = (value) => {
 };
 
 export const UniversityFormBuilderPage = () => {
-  const [savedAt, setSavedAt] = useState("");
-  const [fields, setFields] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const dispatch = useAppDispatch();
+  const { fields, savedAt, loading: isLoading, error: loadError, saveError } = useAppSelector(
+    (state) => state.universityFormSetup,
+  );
+  const error = saveError || loadError;
 
   useEffect(() => {
-    let isMounted = true;
-
-    const loadForm = async () => {
-      setIsLoading(true);
-      setError("");
-      try {
-        const response = await api.get("/universities/me/form");
-        if (!isMounted) return;
-        setFields(response?.data?.fields || []);
-        setSavedAt(formatDateTime(response?.data?.updatedAt));
-      } catch (loadError) {
-        if (!isMounted) return;
-        setError(loadError?.message || "Unable to load form configuration.");
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadForm();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+    dispatch(fetchUniversityFormSetup());
+  }, [dispatch]);
 
   const handleSave = async (nextFields) => {
-    setError("");
     try {
-      const response = await api.put("/universities/me/form", { fields: nextFields });
-      const form = response?.data?.form;
-      setFields(form?.fields || nextFields);
-      setSavedAt(formatDateTime(form?.updatedAt || new Date().toISOString()));
+      await dispatch(saveUniversityFormFields(nextFields)).unwrap();
     } catch (saveError) {
-      setError(saveError?.message || "Unable to save form configuration.");
-      throw saveError;
+      const message =
+        typeof saveError === "string"
+          ? saveError
+          : saveError?.message || "Unable to save form configuration.";
+      throw new Error(message);
     }
   };
 
@@ -77,7 +57,7 @@ export const UniversityFormBuilderPage = () => {
       actions={
         savedAt ? (
           <span className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-            Saved: {savedAt}
+            Saved: {formatDateTime(savedAt)}
           </span>
         ) : null
       }

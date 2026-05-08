@@ -8,6 +8,7 @@ const Announcement = require("../models/Announcement");
 const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
 const getPagination = require("../utils/pagination");
+const { invalidateUniversityPublicCache } = require("./university.controller");
 const {
   ROLES,
   UNIVERSITY_APPROVAL,
@@ -153,6 +154,7 @@ const reviewUniversity = asyncHandler(async (req, res) => {
 
   university.approvalStatus = approvalStatus;
   await university.save();
+  invalidateUniversityPublicCache(university._id);
 
   return res.status(200).json({
     success: true,
@@ -265,6 +267,9 @@ const updateUserStatus = asyncHandler(async (req, res) => {
 
   user.status = status;
   await user.save();
+  if (user.role === ROLES.UNIVERSITY) {
+    invalidateUniversityPublicCache(user._id);
+  }
 
   return res.status(200).json({
     success: true,

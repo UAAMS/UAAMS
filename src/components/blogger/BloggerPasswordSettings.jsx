@@ -1,8 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { KeyRound } from "lucide-react";
 import { PasswordField } from "../shared/PasswordField";
 import { DashboardPageShell } from "../../pages/shared/DashboardPageShell";
-import { api } from "../../lib/apiClient";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import {
+  changeBloggerPassword,
+  clearBloggerPasswordMessages,
+} from "../../store/slices/bloggerAccountSlice";
 
 const initialPasswordState = {
   currentPassword: "",
@@ -11,32 +15,36 @@ const initialPasswordState = {
 };
 
 function BloggerPasswordSettings() {
+  const dispatch = useAppDispatch();
+  const {
+    changingPassword: isSaving,
+    passwordError: error,
+    passwordMessage: message,
+  } = useAppSelector((state) => state.bloggerAccount);
+
   const [passwordData, setPasswordData] = useState(initialPasswordState);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    dispatch(clearBloggerPasswordMessages());
+    return () => {
+      dispatch(clearBloggerPasswordMessages());
+    };
+  }, [dispatch]);
 
   const handleChange = (field, value) => {
     setPasswordData((previous) => ({ ...previous, [field]: value }));
-    if (error) setError("");
-    if (message) setMessage("");
+    if (error || message) {
+      dispatch(clearBloggerPasswordMessages());
+    }
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    setError("");
-    setMessage("");
-    setIsSaving(true);
-
+    dispatch(clearBloggerPasswordMessages());
     try {
-      await api.patch("/blogger/me/password", passwordData);
+      await dispatch(changeBloggerPassword(passwordData)).unwrap();
       setPasswordData(initialPasswordState);
-      setMessage("Password changed successfully.");
-    } catch (updateError) {
-      setError(updateError?.message || "Unable to change password.");
-    } finally {
-      setIsSaving(false);
-    }
+    } catch {}
   };
 
   return (

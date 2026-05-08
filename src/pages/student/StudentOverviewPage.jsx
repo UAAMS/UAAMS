@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -13,91 +12,43 @@ import {
 } from "recharts";
 import { DashboardPageShell } from "../shared/DashboardPageShell";
 import { MetricGrid } from "../shared/MetricGrid";
-import { api } from "../../lib/apiClient";
 import { onDataUpdated } from "../../lib/socketClient";
-
-const quickLinks = [
-  { label: "Complete Profile", to: "/student/profile" },
-  { label: "Apply to Universities", to: "/student/recommendations" },
-  { label: "Track Application Status", to: "/student/applications" },
-  { label: "Read Merit Lists", to: "/student/merit-lists" },
-];
-
-const completionKeys = [
-  "fullName",
-  "email",
-  "phone",
-  "cnic",
-  "address",
-  "city",
-  "matricObtainedMarks",
-  "interObtainedMarks",
-  "preferredPrograms",
-  "preferredCities",
-];
-
-const calculateProfileCompletion = (profile) => {
-  if (!profile) return 0;
-  const completed = completionKeys.filter((key) => {
-    const value = profile[key];
-    if (Array.isArray(value)) return value.length > 0;
-    return String(value || "").trim().length > 0;
-  }).length;
-  return Math.round((completed / completionKeys.length) * 100);
-};
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import { fetchStudentApplications } from "../../store/slices/applicationsSlice";
+import { fetchStudentDashboard } from "../../store/slices/dashboardsSlice";
 
 const formatMonth = (value) =>
   new Date(value).toLocaleString("en-US", { month: "short", year: "2-digit" });
 
 export const StudentOverviewPage = () => {
-  const [applications, setApplications] = useState([]);
-  const [recommendationsCount, setRecommendationsCount] = useState(0);
-  const [announcementsCount, setAnnouncementsCount] = useState(0);
-  const [profileCompletion, setProfileCompletion] = useState(0);
+  const dispatch = useAppDispatch();
+  const { items: applications, loading: applicationsLoading, error: applicationsError } = useAppSelector(
+    (state) => state.applications.student,
+  );
+  const {
+    data: dashboardData,
+    loading: dashboardLoading,
+    error: dashboardError,
+  } = useAppSelector((state) => state.dashboards.student);
+  const recommendationsCount = Number(dashboardData?.metrics?.recommendationsCount || 0);
+  const announcementsCount = Number(dashboardData?.metrics?.announcementsCount || 0);
+  const profileCompletion = Number(dashboardData?.metrics?.profileCompletion || 0);
   const [activeMetricLabel, setActiveMetricLabel] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  const loadOverview = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) {
-      setIsLoading(true);
-    }
-    setError("");
-    try {
-      const [applicationsRes, recommendationsRes, announcementsRes, profileRes] = await Promise.all([
-        api.get("/applications/me"),
-        api.get("/students/recommendations"),
-        api.get("/announcements?limit=200"),
-        api.get("/students/me/profile"),
-      ]);
-
-      const nextApplications = applicationsRes?.data?.applications || [];
-      const nextRecommendations = recommendationsRes?.data?.recommendations || [];
-      const nextAnnouncements = announcementsRes?.data?.announcements || [];
-      const profile = profileRes?.data?.profile || null;
-
-      setApplications(nextApplications);
-      setRecommendationsCount(nextRecommendations.length);
-      setAnnouncementsCount(nextAnnouncements.length);
-      setProfileCompletion(calculateProfileCompletion(profile));
-    } catch (loadError) {
-      setError(loadError?.message || "Unable to load student dashboard data.");
-    } finally {
-      if (!silent) {
-        setIsLoading(false);
-      }
-    }
-  }, []);
+  const isLoading =
+    (applicationsLoading || dashboardLoading) && applications.length === 0 && !dashboardData;
+  const error = applicationsError || dashboardError;
 
   useEffect(() => {
-    loadOverview();
+    dispatch(fetchStudentApplications());
+    dispatch(fetchStudentDashboard());
     const unsubscribe = onDataUpdated((event) => {
       if (["applications", "announcements", "merit-lists", "programs"].includes(event?.resource)) {
-        loadOverview({ silent: true });
+        dispatch(fetchStudentApplications());
+        dispatch(fetchStudentDashboard());
       }
     });
     return () => unsubscribe();
-  }, [loadOverview]);
+  }, [dispatch]);
 
   const metrics = useMemo(() => {
     const inProgress = applications.filter((item) =>

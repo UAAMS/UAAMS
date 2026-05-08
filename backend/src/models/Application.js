@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { queueStructuredSync } = require("../structured/queue");
 
 const paymentSchema = new mongoose.Schema(
   {
@@ -7,6 +8,8 @@ const paymentSchema = new mongoose.Schema(
     method: { type: String, enum: ["card", "bank", "wallet", "other"], default: "card" },
     accountLast4: { type: String, default: "" },
     transactionReference: { type: String, default: "" },
+    proofFileUrl: { type: String, default: "" },
+    proofFileName: { type: String, default: "" },
     paidAt: { type: Date, default: null },
   },
   { _id: false }
@@ -88,6 +91,19 @@ const applicationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+applicationSchema.index({ student: 1, createdAt: -1 });
+applicationSchema.index({ student: 1, status: 1, createdAt: -1 });
+applicationSchema.index({ university: 1, createdAt: -1 });
+applicationSchema.index({ university: 1, status: 1, createdAt: -1 });
+applicationSchema.index({ university: 1, program: 1, status: 1, createdAt: -1 });
+applicationSchema.index({ status: 1, createdAt: -1 });
+applicationSchema.index({ "payment.status": 1, createdAt: -1 });
+applicationSchema.index({ "rollNumber.assigned": 1 });
+applicationSchema.index({ "admissionLetter.issued": 1 });
+applicationSchema.index({ program: 1 });
+applicationSchema.index({ email: 1 });
+applicationSchema.index({ cnic: 1 });
+
 applicationSchema.pre("validate", function buildApplicationCode(next) {
   if (!this.applicationCode) {
     const suffix = `${Math.floor(10000 + Math.random() * 90000)}`;
@@ -95,6 +111,36 @@ applicationSchema.pre("validate", function buildApplicationCode(next) {
     this.applicationCode = `APP-${year}-${suffix}`;
   }
   next();
+});
+
+const queueApplicationSync = (action, applicationId) => {
+  const entityId = String(applicationId || "").trim();
+  if (!entityId) return;
+  void queueStructuredSync({ entityType: "application", entityId, action }).catch(() => {});
+};
+
+applicationSchema.post("save", function onSave(doc) {
+  queueApplicationSync("upsert", doc?._id || this?._id);
+});
+
+applicationSchema.post("findOneAndUpdate", function onFindOneAndUpdate(doc) {
+  if (!doc?._id) return;
+  queueApplicationSync("upsert", doc._id);
+});
+
+applicationSchema.post("findOneAndDelete", function onFindOneAndDelete(doc) {
+  if (!doc?._id) return;
+  queueApplicationSync("delete", doc._id);
+});
+
+applicationSchema.post("deleteOne", { document: true, query: false }, function onDeleteOneDocument(doc) {
+  queueApplicationSync("delete", doc?._id || this?._id);
+});
+
+applicationSchema.post("deleteOne", { document: false, query: true }, function onDeleteOneQuery() {
+  const filter = this.getFilter ? this.getFilter() : {};
+  if (!filter?._id) return;
+  queueApplicationSync("delete", filter._id);
 });
 
 module.exports = mongoose.model("Application", applicationSchema);

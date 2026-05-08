@@ -1,9 +1,16 @@
 const User = require("../models/User");
 const StudentProfile = require("../models/StudentProfile");
 const UniversityProfile = require("../models/UniversityProfile");
+const RecommendationSnapshot = require("../models/RecommendationSnapshot");
+const env = require("../config/env");
 const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/ApiError");
+const { getCache, setCache } = require("../utils/cacheClient");
+const { persistMaybeDataUrl } = require("../utils/fileStorage");
 const { ROLES, UNIVERSITY_APPROVAL, USER_STATUS } = require("../constants/roles");
+
+const UNIVERSITY_RECOMMENDATION_DATASET_CACHE_KEY = "recommendations:universities:dataset:v1";
+const SNAPSHOT_CACHE_VERSION = 2;
 
 const formatReadableDate = (value) => {
   if (!value) return "Not announced";
@@ -14,6 +21,157 @@ const formatReadableDate = (value) => {
     month: "long",
     day: "numeric",
   });
+};
+
+const normalizeStringArray = (value) =>
+  (Array.isArray(value) ? value : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+
+const areStringArraysEqual = (a = [], b = []) => {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) return false;
+  }
+  return true;
+};
+
+const buildProfileBasis = (studentProfile) => ({
+  cacheVersion: SNAPSHOT_CACHE_VERSION,
+  studentAggregate: Math.max(
+    Number(studentProfile?.interPercentage || 0),
+    Number(studentProfile?.matricPercentage || 0),
+  ),
+  preferredPrograms: normalizeStringArray(studentProfile?.preferredPrograms),
+  preferredCities: normalizeStringArray(studentProfile?.preferredCities),
+});
+
+const hasRecommendationSnapshotExpired = (snapshotGeneratedAt, ttlMs) => {
+  if (!snapshotGeneratedAt) return true;
+  const snapshotTime = new Date(snapshotGeneratedAt).getTime();
+  if (Number.isNaN(snapshotTime)) return true;
+  return Date.now() - snapshotTime > ttlMs;
+};
+
+const canReuseSnapshotRecommendations = ({ snapshot, profileBasis, studentProfileUpdatedAt }) => {
+  if (!snapshot) return false;
+  if (Number(snapshot?.profileBasis?.cacheVersion || 0) !== SNAPSHOT_CACHE_VERSION) {
+    return false;
+  }
+
+  if (
+    hasRecommendationSnapshotExpired(
+      snapshot.generatedAt || snapshot.updatedAt,
+      env.recommendationsCacheTtlMs,
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    studentProfileUpdatedAt &&
+    snapshot.generatedAt &&
+    new Date(studentProfileUpdatedAt).getTime() > new Date(snapshot.generatedAt).getTime()
+  ) {
+    return false;
+  }
+
+  const snapshotBasis = snapshot.profileBasis || {};
+  return (
+    Number(snapshotBasis.studentAggregate || 0) === Number(profileBasis.studentAggregate || 0) &&
+    areStringArraysEqual(
+      normalizeStringArray(snapshotBasis.preferredPrograms),
+      profileBasis.preferredPrograms,
+    ) &&
+    areStringArraysEqual(
+      normalizeStringArray(snapshotBasis.preferredCities),
+      profileBasis.preferredCities,
+    )
+  );
+};
+
+const filterRecommendationsByRequest = ({ recommendations = [], minAggregate, maxFee, typeFilter }) =>
+  recommendations
+    .map((item) => {
+      const allProgramRecommendations = Array.isArray(item?.programRecommendations)
+        ? item.programRecommendations
+        : [];
+      const filteredPrograms = allProgramRecommendations
+        .filter((program) => Number(program?.requiredAggregate || 0) >= minAggregate)
+        .sort((a, b) => Number(b?.matchScore || 0) - Number(a?.matchScore || 0));
+
+      if (filteredPrograms.length === 0) {
+        return null;
+      }
+
+      const requiredAggregate = Math.min(
+        ...filteredPrograms.map((program) => Number(program?.requiredAggregate || 0)),
+      );
+      const feeRange =
+        filteredPrograms.find((program) => String(program?.feeRange || "").trim())?.feeRange ||
+        "Contact university";
+      const matchScore = Math.max(
+        ...filteredPrograms.map((program) => Number(program?.matchScore || 0)),
+      );
+      const earliestProgramDeadline = filteredPrograms
+        .map((program) => program?.deadlineDate)
+        .filter(Boolean)
+        .map((value) => new Date(value))
+        .filter((date) => !Number.isNaN(date.getTime()))
+        .sort((a, b) => a - b)[0] || null;
+
+      return {
+        ...item,
+        programs: filteredPrograms.map((program) => program.name),
+        programRecommendations: filteredPrograms,
+        requiredAggregate,
+        feeRange,
+        matchScore,
+        deadline: formatReadableDate(earliestProgramDeadline || item?.applicationEndDate || null),
+      };
+    })
+    .filter(Boolean)
+    .filter((item) => (typeFilter === "all" ? true : String(item?.type || "").toLowerCase() === typeFilter))
+    .filter((item) => Number(item?.applicationFee || 0) <= maxFee)
+    .sort((a, b) => Number(b?.matchScore || 0) - Number(a?.matchScore || 0));
+
+const loadUniversityRecommendationDataset = async () => {
+  const cached = await getCache(UNIVERSITY_RECOMMENDATION_DATASET_CACHE_KEY);
+  if (cached) {
+    return {
+      universities: Array.isArray(cached.universities) ? cached.universities : [],
+      profileLookup: cached.profileLookup && typeof cached.profileLookup === "object"
+        ? cached.profileLookup
+        : {},
+    };
+  }
+
+  const universities = await User.find({
+    role: ROLES.UNIVERSITY,
+    approvalStatus: UNIVERSITY_APPROVAL.APPROVED,
+    status: USER_STATUS.ACTIVE,
+  })
+    .select("name location programsOffered")
+    .lean();
+
+  const universityIds = universities.map((item) => item._id);
+  const profiles = await UniversityProfile.find({
+    university: { $in: universityIds },
+  })
+    .select("university universityName city type applicationFee applicationEndDate programs")
+    .lean();
+
+  const profileLookup = Object.fromEntries(
+    profiles.map((item) => [String(item.university), item])
+  );
+  const dataset = {
+    universities,
+    profileLookup,
+  };
+
+  await setCache(UNIVERSITY_RECOMMENDATION_DATASET_CACHE_KEY, dataset, env.apiCacheTtlMs);
+  return dataset;
 };
 
 const getMyProfile = asyncHandler(async (req, res) => {
@@ -38,6 +196,26 @@ const updateMyProfile = asyncHandler(async (req, res) => {
   delete payload.user;
   delete payload._id;
 
+  const fileFieldMap = {
+    profilePicture: "profile-picture",
+    domicileDocument: "domicile-document",
+    matricResultDocument: "matric-result",
+    interResultDocument: "inter-result",
+  };
+
+  const fileFieldEntries = Object.entries(fileFieldMap);
+  for (const [field, preferredName] of fileFieldEntries) {
+    if (!Object.prototype.hasOwnProperty.call(payload, field)) {
+      continue;
+    }
+
+    payload[field] = await persistMaybeDataUrl({
+      value: payload[field],
+      folder: `student-profiles/${String(req.user._id)}`,
+      preferredName,
+    });
+  }
+
   const profile = await StudentProfile.findOneAndUpdate(
     { user: req.user._id },
     { $set: payload, $setOnInsert: { user: req.user._id } },
@@ -55,29 +233,46 @@ const getRecommendations = asyncHandler(async (req, res) => {
   const minAggregate = Number(req.query.minAggregate || 0);
   const maxFee = Number(req.query.maxFee || Number.MAX_SAFE_INTEGER);
   const typeFilter = (req.query.type || "all").toLowerCase();
+  const studentProfile = await StudentProfile.findOne({ user: req.user._id })
+    .select("interPercentage matricPercentage preferredPrograms preferredCities updatedAt")
+    .lean();
+  const profileBasis = buildProfileBasis(studentProfile);
 
-  const universities = await User.find({
-    role: ROLES.UNIVERSITY,
-    approvalStatus: UNIVERSITY_APPROVAL.APPROVED,
-    status: USER_STATUS.ACTIVE,
-  }).lean();
+  const snapshot = await RecommendationSnapshot.findOne({ student: req.user._id })
+    .select("recommendations profileBasis generatedAt updatedAt")
+    .lean();
 
-  const universityIds = universities.map((item) => item._id);
-  const profiles = await UniversityProfile.find({
-    university: { $in: universityIds },
-  }).lean();
+  if (
+    canReuseSnapshotRecommendations({
+      snapshot,
+      profileBasis,
+      studentProfileUpdatedAt: studentProfile?.updatedAt || null,
+    })
+  ) {
+    const recommendations = filterRecommendationsByRequest({
+      recommendations: snapshot.recommendations || [],
+      minAggregate,
+      maxFee,
+      typeFilter,
+    });
 
-  const profileMap = new Map(profiles.map((item) => [String(item.university), item]));
+    return res.status(200).json({
+      success: true,
+      data: {
+        recommendations,
+        profileBasis,
+      },
+    });
+  }
 
-  const studentProfile = await StudentProfile.findOne({ user: req.user._id }).lean();
-  const studentAggregate = Math.max(
-    Number(studentProfile?.interPercentage || 0),
-    Number(studentProfile?.matricPercentage || 0)
-  );
+  const { universities, profileLookup } = await loadUniversityRecommendationDataset();
+  const studentAggregate = Number(profileBasis.studentAggregate || 0);
+  const preferredPrograms = profileBasis.preferredPrograms;
+  const preferredCities = profileBasis.preferredCities;
 
-  const recommendations = universities
+  const allRecommendations = universities
     .map((uni) => {
-      const profile = profileMap.get(String(uni._id));
+      const profile = profileLookup[String(uni._id)];
       const programsFromProfile = Array.isArray(profile?.programs) ? profile.programs : [];
       const parsedProgramsFromRegistration = String(uni.programsOffered || "")
         .split(",")
@@ -112,8 +307,7 @@ const getRecommendations = asyncHandler(async (req, res) => {
         }
       });
 
-      const cityBonus =
-        profile?.city && studentProfile?.preferredCities?.includes(profile.city) ? 5 : 0;
+      const cityBonus = profile?.city && preferredCities.includes(profile.city) ? 5 : 0;
 
       const programRecommendations = Array.from(uniqueProgramMap.values())
         .map((program) => {
@@ -128,7 +322,7 @@ const getRecommendations = asyncHandler(async (req, res) => {
 
           matchScore += cityBonus;
 
-          if (studentProfile?.preferredPrograms?.includes(program.name)) {
+          if (preferredPrograms.includes(program.name)) {
             matchScore += 5;
           }
 
@@ -143,7 +337,6 @@ const getRecommendations = asyncHandler(async (req, res) => {
             isAdmissionOpen: program.isAdmissionOpen !== false,
           };
         })
-        .filter((program) => program.requiredAggregate >= minAggregate)
         .sort((a, b) => b.matchScore - a.matchScore);
 
       if (programRecommendations.length === 0) {
@@ -175,26 +368,42 @@ const getRecommendations = asyncHandler(async (req, res) => {
         programRecommendations,
         feeRange,
         requiredAggregate,
-        deadline: formatReadableDate(earliestProgramDeadline || profile?.applicationEndDate),
+        deadline: formatReadableDate(earliestProgramDeadline || profile?.applicationEndDate || null),
+        applicationEndDate: profile?.applicationEndDate || null,
         matchScore,
         type: profile?.type || "public",
         applicationFee: Number(profile?.applicationFee || 0),
       };
     })
-    .filter(Boolean)
-    .filter((item) => (typeFilter === "all" ? true : item.type.toLowerCase() === typeFilter))
-    .filter((item) => item.applicationFee <= maxFee)
-    .sort((a, b) => b.matchScore - a.matchScore);
+    .filter(Boolean);
+
+  const recommendations = filterRecommendationsByRequest({
+    recommendations: allRecommendations,
+    minAggregate,
+    maxFee,
+    typeFilter,
+  });
+
+  await RecommendationSnapshot.findOneAndUpdate(
+    { student: req.user._id },
+    {
+      $set: {
+        recommendations: allRecommendations,
+        profileBasis,
+        generatedAt: new Date(),
+      },
+      $setOnInsert: {
+        student: req.user._id,
+      },
+    },
+    { upsert: true, new: true }
+  );
 
   return res.status(200).json({
     success: true,
     data: {
       recommendations,
-      profileBasis: {
-        studentAggregate,
-        preferredPrograms: studentProfile?.preferredPrograms || [],
-        preferredCities: studentProfile?.preferredCities || [],
-      },
+      profileBasis,
     },
   });
 });

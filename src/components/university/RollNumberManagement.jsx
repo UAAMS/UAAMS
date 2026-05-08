@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
-import { api } from "../../lib/apiClient";
 import { getFileNameFromPath, readFileAsDataUrl } from "../../lib/fileDataUrl";
 import { onDataUpdated } from "../../lib/socketClient";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import {
+  fetchUniversityRollNumberRecords,
+  upsertUniversityRollNumberRecord,
+} from "../../store/slices/universityApplicationRecordsSlice";
 
 const initialFormState = {
   number: "",
@@ -11,28 +15,14 @@ const initialFormState = {
   eligibleForAdmissionLetter: false,
 };
 
-const normalizeApplication = (item) => ({
-  id: String(item?._id || item?.id || ""),
-  applicationCode: item?.applicationCode || "N/A",
-  studentName: item?.studentName || item?.student?.name || "Student",
-  email: item?.email || item?.student?.email || "",
-  program: item?.program || "Program",
-  aggregate: Number(item?.aggregate || 0),
-  status: item?.status || "pending",
-  eligibleForAdmissionLetter: Boolean(item?.eligibleForAdmissionLetter),
-  rollNumber: {
-    assigned: Boolean(item?.rollNumber?.assigned),
-    number: item?.rollNumber?.number || "",
-    slipFileUrl: item?.rollNumber?.slipFileUrl || "",
-    slipFileName: item?.rollNumber?.slipFileName || "",
-    assignedAt: item?.rollNumber?.assignedAt || null,
-  },
-});
-
 function RollNumberManagement() {
-  const [applications, setApplications] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const dispatch = useAppDispatch();
+  const {
+    items: applications,
+    loading: isLoading,
+    error,
+    savingId,
+  } = useAppSelector((state) => state.universityApplicationRecords.rollNumbers);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
@@ -42,31 +32,17 @@ function RollNumberManagement() {
   const [selectedApplicationId, setSelectedApplicationId] = useState("");
   const [formData, setFormData] = useState(initialFormState);
   const [formError, setFormError] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-
-  const loadApplications = async () => {
-    setIsLoading(true);
-    setError("");
-    try {
-      const response = await api.get("/universities/me/roll-numbers?limit=200");
-      const items = response?.data?.applications || [];
-      setApplications(items.map(normalizeApplication));
-    } catch (loadError) {
-      setError(loadError?.message || "Unable to load roll-number records.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const isSaving = Boolean(selectedApplicationId) && savingId === selectedApplicationId;
 
   useEffect(() => {
-    loadApplications();
+    dispatch(fetchUniversityRollNumberRecords());
     const unsubscribe = onDataUpdated((event) => {
       if (event?.resource === "applications" || event?.resource === "merit-lists") {
-        loadApplications();
+        dispatch(fetchUniversityRollNumberRecords());
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, [dispatch]);
 
   const programs = useMemo(() => {
     const unique = new Set(applications.map((item) => item.program).filter(Boolean));
@@ -134,23 +110,19 @@ function RollNumberManagement() {
     if (!selectedApplicationId) return;
 
     setFormError("");
-    setIsSaving(true);
 
     try {
-      const response = await api.patch(
-        `/universities/me/roll-numbers/${selectedApplicationId}`,
-        formData
-      );
-      const updated = normalizeApplication(response?.data?.application || {});
-
-      setApplications((previous) =>
-        previous.map((item) => (item.id === selectedApplicationId ? { ...item, ...updated } : item))
-      );
+      await dispatch(
+        upsertUniversityRollNumberRecord({
+          applicationId: selectedApplicationId,
+          payload: formData,
+        }),
+      ).unwrap();
       closeAssignForm();
     } catch (saveError) {
-      setFormError(saveError?.message || "Unable to save roll number.");
-    } finally {
-      setIsSaving(false);
+      const message =
+        typeof saveError === "string" ? saveError : saveError?.message || "Unable to save roll number.";
+      setFormError(message);
     }
   };
 

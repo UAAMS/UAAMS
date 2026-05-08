@@ -1,27 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../../lib/apiClient";
-
-const normalizeUniversity = (item) => ({
-  id: String(item?._id || item?.id || ""),
-  name: item?.profile?.universityName || item?.name || "University",
-  email: item?.email || item?.profile?.email || "",
-  location: item?.location || item?.profile?.city || "N/A",
-  representative: item?.representativeName || item?.profile?.representativeName || "N/A",
-  website: item?.website || item?.profile?.website || "",
-  established: item?.profile?.established || item?.establishedYear || "",
-  approvalStatus: item?.approvalStatus || "pending",
-  status: item?.status || "active",
-  createdAt: item?.createdAt || null,
-  bloggerCount: Number(item?.bloggerCount || 0),
-  applicationStats: item?.applicationStats || {
-    total: 0,
-    pending: 0,
-    underReview: 0,
-    accepted: 0,
-    rejected: 0,
-    assigned: 0,
-  },
-});
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import {
+  deleteAdminUniversity,
+  fetchAdminUniversitiesManagement,
+  reviewAdminUniversity,
+  toggleAdminUniversityStatus,
+} from "../../store/slices/adminUniversityManagementSlice";
 
 const formatDate = (value) => {
   if (!value) return "N/A";
@@ -35,40 +19,32 @@ const formatDate = (value) => {
 };
 
 function UniversityManagement() {
-  const [universities, setUniversities] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const dispatch = useAppDispatch();
+  const {
+    items: universities,
+    loading: isLoading,
+    error: loadError,
+    mutationError,
+    mutatingKeys,
+  } = useAppSelector((state) => state.adminUniversityManagement);
+  const error = mutationError || loadError;
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [activeId, setActiveId] = useState("");
-
-  const loadUniversities = async () => {
-    setIsLoading(true);
-    setError("");
-    try {
-      const params = new URLSearchParams();
-      params.set("limit", "200");
-      if (statusFilter !== "all") params.set("status", statusFilter);
-      if (searchTerm.trim()) params.set("search", searchTerm.trim());
-
-      const response = await api.get(`/admin/universities/management?${params.toString()}`);
-      const items = response?.data?.items || [];
-      setUniversities(items.map(normalizeUniversity));
-    } catch (loadError) {
-      setError(loadError?.message || "Unable to load universities.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const activeId = mutatingKeys[0] || "";
 
   useEffect(() => {
     const timeout = setTimeout(() => {
-      loadUniversities();
+      dispatch(
+        fetchAdminUniversitiesManagement({
+          searchTerm,
+          statusFilter,
+        }),
+      );
     }, 250);
 
     return () => clearTimeout(timeout);
-  }, [searchTerm, statusFilter]);
+  }, [dispatch, searchTerm, statusFilter]);
 
   const stats = useMemo(
     () => ({
@@ -81,37 +57,24 @@ function UniversityManagement() {
   );
 
   const handleReview = async (universityId, approvalStatus) => {
-    setActiveId(`${universityId}-review`);
-    setError("");
     try {
-      await api.patch(`/admin/universities/${universityId}/review`, { approvalStatus });
-      setUniversities((previous) =>
-        previous.map((item) =>
-          item.id === universityId ? { ...item, approvalStatus } : item
-        )
-      );
-    } catch (reviewError) {
-      setError(reviewError?.message || "Unable to update approval status.");
-    } finally {
-      setActiveId("");
+      await dispatch(reviewAdminUniversity({ universityId, approvalStatus })).unwrap();
+    } catch {
+      // Errors are surfaced from Redux state.
     }
   };
 
   const handleToggleUserStatus = async (university) => {
     const nextStatus = university.status === "active" ? "inactive" : "active";
-    setActiveId(`${university.id}-status`);
-    setError("");
     try {
-      await api.patch(`/admin/users/${university.id}/status`, { status: nextStatus });
-      setUniversities((previous) =>
-        previous.map((item) =>
-          item.id === university.id ? { ...item, status: nextStatus } : item
-        )
-      );
-    } catch (statusError) {
-      setError(statusError?.message || "Unable to update university status.");
-    } finally {
-      setActiveId("");
+      await dispatch(
+        toggleAdminUniversityStatus({
+          universityId: university.id,
+          status: nextStatus,
+        }),
+      ).unwrap();
+    } catch {
+      // Errors are surfaced from Redux state.
     }
   };
 
@@ -121,15 +84,10 @@ function UniversityManagement() {
     );
     if (!confirmed) return;
 
-    setActiveId(`${university.id}-delete`);
-    setError("");
     try {
-      await api.del(`/admin/users/${university.id}`);
-      setUniversities((previous) => previous.filter((item) => item.id !== university.id));
-    } catch (deleteError) {
-      setError(deleteError?.message || "Unable to delete university.");
-    } finally {
-      setActiveId("");
+      await dispatch(deleteAdminUniversity(university.id)).unwrap();
+    } catch {
+      // Errors are surfaced from Redux state.
     }
   };
 

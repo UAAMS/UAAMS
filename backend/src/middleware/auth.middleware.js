@@ -4,6 +4,24 @@ const asyncHandler = require("../utils/asyncHandler");
 const { verifyAuthToken } = require("../utils/jwt");
 const { USER_STATUS } = require("../constants/roles");
 
+const AUTH_USER_PROJECTION = [
+  "name",
+  "email",
+  "username",
+  "role",
+  "approvalStatus",
+  "status",
+  "representativeName",
+  "phone",
+  "location",
+  "website",
+  "establishedYear",
+  "studentCount",
+  "programsOffered",
+  "managedUniversity",
+  "emailVerified",
+].join(" ");
+
 const protect = asyncHandler(async (req, _res, next) => {
   const header = req.headers.authorization || "";
   const [scheme, token] = header.split(" ");
@@ -19,7 +37,7 @@ const protect = asyncHandler(async (req, _res, next) => {
     throw new ApiError(401, "Invalid or expired token.");
   }
 
-  const user = await User.findById(decoded.userId);
+  const user = await User.findById(decoded.userId).select(AUTH_USER_PROJECTION);
 
   if (!user) {
     throw new ApiError(401, "User account not found.");
@@ -44,7 +62,7 @@ const optionalProtect = asyncHandler(async (req, _res, next) => {
 
   try {
     const decoded = verifyAuthToken(token);
-    const user = await User.findById(decoded.userId);
+    const user = await User.findById(decoded.userId).select(AUTH_USER_PROJECTION);
     req.user = user || null;
     return next();
   } catch {

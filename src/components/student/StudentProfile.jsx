@@ -13,12 +13,20 @@ import {
 import { Card } from "../ui/card";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { api } from "../../lib/apiClient";
 import { useAuth } from "../../context/AuthContext";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import {
+  fetchStudentProfile,
+  updateStudentProfile,
+} from "../../store/slices/studentProfileSlice";
 
 function StudentProfile({ studentId, initialName }) {
   const { refreshUser } = useAuth();
+  const dispatch = useAppDispatch();
+  const { profile, loading, saving, error, saveError } = useAppSelector(
+    (state) => state.studentProfile,
+  );
   const initialProfile = {
     fullName: initialName,
     fatherName: "",
@@ -64,7 +72,6 @@ function StudentProfile({ studentId, initialName }) {
 
   const [isEditing, setIsEditing] = useState(false);
   const [profileData, setProfileData] = useState(initialProfile);
-  const [isLoading, setIsLoading] = useState(true);
   const [statusMessage, setStatusMessage] = useState("");
 
   const calculatePercentage = (obtained, total) => {
@@ -101,31 +108,25 @@ function StudentProfile({ studentId, initialName }) {
   }, [profileData.interObtainedMarks, profileData.interTotalMarks, profileData.interPercentage]);
 
   useEffect(() => {
-    let isMounted = true;
+    dispatch(fetchStudentProfile());
+  }, [dispatch, studentId]);
 
-    const loadProfile = async () => {
-      setIsLoading(true);
-      try {
-        const response = await api.get("/students/me/profile");
-        const profile = response?.data?.profile || {};
-        if (!isMounted) return;
-        setProfileData((previous) => ({ ...previous, ...profile }));
-      } catch {
-        if (!isMounted) return;
-        setStatusMessage("Unable to load profile from server.");
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
+  useEffect(() => {
+    if (!profile) return;
+    setProfileData((previous) => ({ ...previous, ...profile }));
+  }, [profile]);
 
-    loadProfile();
+  useEffect(() => {
+    if (error) {
+      setStatusMessage(error);
+    }
+  }, [error]);
 
-    return () => {
-      isMounted = false;
-    };
-  }, [studentId]);
+  useEffect(() => {
+    if (saveError) {
+      setStatusMessage(saveError);
+    }
+  }, [saveError]);
 
   const handleSave = async () => {
     setStatusMessage("");
@@ -147,9 +148,8 @@ function StudentProfile({ studentId, initialName }) {
     }
 
     try {
-      const response = await api.put("/students/me/profile", profileData);
-      const profile = response?.data?.profile || profileData;
-      setProfileData((previous) => ({ ...previous, ...profile }));
+      const updatedProfile = await dispatch(updateStudentProfile(profileData)).unwrap();
+      setProfileData((previous) => ({ ...previous, ...(updatedProfile || {}) }));
       await refreshUser();
       setIsEditing(false);
       setStatusMessage("Profile updated successfully.");
@@ -204,7 +204,7 @@ function StudentProfile({ studentId, initialName }) {
     "Sialkot",
   ];
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
         Loading student profile...
@@ -226,9 +226,9 @@ function StudentProfile({ studentId, initialName }) {
             <Button variant="outline" onClick={() => setIsEditing(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSave} className="gap-2">
+            <Button onClick={handleSave} className="gap-2" disabled={saving}>
               <Save className="w-4 h-4" />
-              Save Changes
+              {saving ? "Saving..." : "Save Changes"}
             </Button>
           </div>
         )}

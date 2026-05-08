@@ -158,22 +158,27 @@ const register = asyncHandler(async (req, res) => {
   }
 
   const verificationUrl = buildEmailVerificationUrl(req, verificationToken, createdUser.email);
-  const emailDelivery = await sendEmailVerificationLinkEmail({
-    to: createdUser.email,
-    name: createdUser.name,
-    verificationUrl,
-    validForHours: EMAIL_VERIFICATION_EXPIRY_HOURS,
-  });
 
-  if (!emailDelivery.sent) {
-    await Promise.all([
-      StudentProfile.deleteOne({ user: createdUser._id }),
-      UniversityProfile.deleteOne({ university: createdUser._id }),
-      User.deleteOne({ _id: createdUser._id }),
-    ]);
-    throw new ApiError(
-      500,
-      emailDelivery.reason || "Unable to send verification email. Please try again."
+  try {
+    const emailDelivery = await sendEmailVerificationLinkEmail({
+      to: createdUser.email,
+      name: createdUser.name,
+      verificationUrl,
+      validForHours: EMAIL_VERIFICATION_EXPIRY_HOURS,
+    });
+
+    if (!emailDelivery.sent) {
+      console.error(
+        "Email verification delivery failed for user",
+        createdUser._id?.toString(),
+        emailDelivery.reason,
+      );
+    }
+  } catch (error) {
+    console.error(
+      "Error sending verification email for user",
+      createdUser._id?.toString(),
+      error?.message || error,
     );
   }
 
@@ -182,7 +187,7 @@ const register = asyncHandler(async (req, res) => {
     message:
       role === ROLES.UNIVERSITY
         ? "Registration submitted. Verify your email first, then wait for admin approval."
-        : "Account created. Verification link sent to your email.",
+        : "Account created. Verification email is being sent.",
     data: {
       user: createdUser.toSafeObject(),
       verificationRequired: true,
