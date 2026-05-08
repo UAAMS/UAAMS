@@ -5,10 +5,12 @@ const BlogPost = require("../../models/BlogPost");
 const BlogComment = require("../../models/BlogComment");
 const User = require("../../models/User");
 const StudentProfile = require("../../models/StudentProfile");
+
 const asyncHandler = require("../../utils/asyncHandler");
 const getPagination = require("../../utils/pagination");
 const ApiError = require("../../utils/ApiError");
 const { emitDataUpdate } = require("../../utils/socket");
+
 const { ROLES, UNIVERSITY_APPROVAL, USER_STATUS } = require("../../constants/roles");
 const {
   ensureStudentRole,
@@ -27,6 +29,33 @@ const normalizeSearchRegex = (search) => ({
   $regex: String(search || "").trim(),
   $options: "i",
 });
+
+const MERIT_LIST_PROJECTION = [
+  "applicationCode",
+  "student",
+  "studentName",
+  "program",
+  "aggregate",
+  "status",
+  "meritPosition",
+  "meritListNumber",
+  "rollNumber.number",
+  "university",
+  "createdAt",
+  "updatedAt",
+].join(" ");
+
+const DASHBOARD_RECENT_APPLICATIONS_PROJECTION = [
+  "applicationCode",
+  "university",
+  "studentName",
+  "program",
+  "aggregate",
+  "status",
+  "payment.status",
+  "createdAt",
+  "updatedAt",
+].join(" ");
 
 const sortCommentTreeByCreatedAt = (items = []) => {
   items.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
@@ -142,6 +171,7 @@ const listMyMeritLists = asyncHandler(async (req, res) => {
   }
 
   const applications = await Application.find(query)
+    .select(MERIT_LIST_PROJECTION)
     .sort({ updatedAt: -1, createdAt: -1 })
     .populate("university", "name")
     .lean();
@@ -258,6 +288,7 @@ const listMyBlogs = asyncHandler(async (req, res) => {
   const [total, posts] = await Promise.all([
     BlogPost.countDocuments(query),
     BlogPost.find(query)
+      .select("-viewedBy")
       .sort({ publishedAt: -1, createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -330,6 +361,37 @@ const listMyBlogs = asyncHandler(async (req, res) => {
   });
 });
 
+const recordBlogPostView = asyncHandler(async (req, res) => {
+  ensureObjectId(req.params.postId, "Invalid blog id.");
+
+  const post = await BlogPost.findById(req.params.postId).lean();
+  if (!post || post.status !== "published") {
+    throw new ApiError(404, "Blog post not found.");
+  }
+
+  const updatedPost = await BlogPost.findOneAndUpdate(
+    {
+      _id: req.params.postId,
+      viewedBy: { $ne: req.user._id },
+    },
+    {
+      $addToSet: { viewedBy: req.user._id },
+      $inc: { views: 1 },
+    },
+    { new: true },
+  );
+
+  const views = Number(updatedPost?.views ?? post.views ?? 0);
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      postId: String(req.params.postId),
+      views,
+    },
+  });
+});
+
 const getMyDashboard = asyncHandler(async (req, res) => {
   const studentProfile = await StudentProfile.findOne({ user: req.user._id }).lean();
 
@@ -357,6 +419,7 @@ const getMyDashboard = asyncHandler(async (req, res) => {
       status: USER_STATUS.ACTIVE,
     }),
     Application.find({ student: req.user._id })
+      .select(DASHBOARD_RECENT_APPLICATIONS_PROJECTION)
       .sort({ createdAt: -1 })
       .limit(5)
       .populate("university", "name")
@@ -597,6 +660,7 @@ module.exports = {
   listMyAnnouncements,
   listMyMeritLists,
   listMyBlogs,
+  recordBlogPostView,
   getBlogComments,
   createBlogComment,
   toggleBlogPostLike,

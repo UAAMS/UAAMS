@@ -1,24 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../../lib/apiClient";
-
-const normalizeStudent = (item) => ({
-  id: String(item?._id || item?.id || ""),
-  name: item?.name || "",
-  email: item?.email || "",
-  phone: item?.phone || item?.profile?.phone || "",
-  city: item?.location || item?.profile?.city || "",
-  status: item?.status || "active",
-  createdAt: item?.createdAt || null,
-  profile: item?.profile || null,
-  applicationStats: item?.applicationStats || {
-    total: 0,
-    pending: 0,
-    underReview: 0,
-    accepted: 0,
-    rejected: 0,
-    assigned: 0,
-  },
-});
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import {
+  deleteAdminStudent,
+  fetchAdminStudentsManagement,
+  toggleAdminStudentStatus,
+} from "../../store/slices/adminUsersManagementSlice";
 
 const formatDate = (value) => {
   if (!value) return "N/A";
@@ -32,39 +18,27 @@ const formatDate = (value) => {
 };
 
 function StudentManagement() {
-  const [students, setStudents] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const dispatch = useAppDispatch();
+  const {
+    items: students,
+    loading: isLoading,
+    error: loadError,
+    mutationError,
+    mutatingKeys,
+  } = useAppSelector((state) => state.adminUsersManagement.students);
+  const error = mutationError || loadError;
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [activeId, setActiveId] = useState("");
-
-  const loadStudents = async () => {
-    setIsLoading(true);
-    setError("");
-    try {
-      const params = new URLSearchParams();
-      params.set("limit", "200");
-      if (searchTerm.trim()) params.set("search", searchTerm.trim());
-
-      const response = await api.get(`/admin/students/management?${params.toString()}`);
-      const items = response?.data?.items || [];
-      setStudents(items.map(normalizeStudent));
-    } catch (loadError) {
-      setError(loadError?.message || "Unable to load students.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const activeId = mutatingKeys[0] || "";
 
   useEffect(() => {
     const timeout = setTimeout(() => {
-      loadStudents();
+      dispatch(fetchAdminStudentsManagement({ searchTerm }));
     }, 250);
 
     return () => clearTimeout(timeout);
-  }, [searchTerm]);
+  }, [dispatch, searchTerm]);
 
   const filteredStudents = useMemo(() => {
     if (statusFilter === "all") return students;
@@ -86,19 +60,12 @@ function StudentManagement() {
 
   const handleToggleStatus = async (student) => {
     const nextStatus = student.status === "active" ? "inactive" : "active";
-    setActiveId(student.id);
-    setError("");
     try {
-      await api.patch(`/admin/users/${student.id}/status`, { status: nextStatus });
-      setStudents((previous) =>
-        previous.map((item) =>
-          item.id === student.id ? { ...item, status: nextStatus } : item
-        )
-      );
-    } catch (statusError) {
-      setError(statusError?.message || "Unable to update student status.");
-    } finally {
-      setActiveId("");
+      await dispatch(
+        toggleAdminStudentStatus({ studentId: student.id, status: nextStatus }),
+      ).unwrap();
+    } catch {
+      // Errors are surfaced from Redux state.
     }
   };
 
@@ -108,15 +75,10 @@ function StudentManagement() {
     );
     if (!confirmed) return;
 
-    setActiveId(`${student.id}-delete`);
-    setError("");
     try {
-      await api.del(`/admin/users/${student.id}`);
-      setStudents((previous) => previous.filter((item) => item.id !== student.id));
-    } catch (deleteError) {
-      setError(deleteError?.message || "Unable to delete student.");
-    } finally {
-      setActiveId("");
+      await dispatch(deleteAdminStudent(student.id)).unwrap();
+    } catch {
+      // Errors are surfaced from Redux state.
     }
   };
 

@@ -2,11 +2,15 @@ const mongoose = require("mongoose");
 const User = require("../models/User");
 const UniversityProfile = require("../models/UniversityProfile");
 const UniversityForm = require("../models/UniversityForm");
+const env = require("../config/env");
 const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
 const getPagination = require("../utils/pagination");
+const { getCache, setCache, invalidateCachePrefix } = require("../utils/cacheClient");
 const { sendBloggerCredentialsEmail } = require("../utils/mailer");
 const { emitDataUpdate } = require("../utils/socket");
+const { persistMaybeDataUrl } = require("../utils/fileStorage");
+const { getSystemApplicationTemplate, SYSTEM_TEMPLATE_ID } = require("../config/systemApplicationTemplate");
 const {
   ROLES,
   UNIVERSITY_APPROVAL,
@@ -112,10 +116,30 @@ const ensureObjectId = (id, message = "Invalid resource id.") => {
   }
 };
 
+const UNIVERSITIES_LIST_CACHE_PREFIX = "universities:list:";
+const UNIVERSITY_DETAIL_CACHE_PREFIX = "universities:detail:";
+const UNIVERSITY_FORM_CACHE_PREFIX = "universities:form:";
+
+const buildCacheKey = (prefix, payload = {}) => `${prefix}${JSON.stringify(payload)}`;
+
+const invalidateUniversityPublicCache = (universityId = "") => {
+  invalidateCachePrefix(UNIVERSITIES_LIST_CACHE_PREFIX);
+  if (universityId) {
+    invalidateCachePrefix(`${UNIVERSITY_DETAIL_CACHE_PREFIX}${String(universityId)}:`);
+    invalidateCachePrefix(`${UNIVERSITY_FORM_CACHE_PREFIX}${String(universityId)}:`);
+  }
+};
+
 const listUniversities = asyncHandler(async (req, res) => {
   const { page, limit, skip } = getPagination(req.query);
   const search = String(req.query.search || "").trim();
   const type = String(req.query.type || "all").toLowerCase();
+  const cacheKey = buildCacheKey(UNIVERSITIES_LIST_CACHE_PREFIX, { page, limit, search, type });
+  const cachedResponse = await getCache(cacheKey);
+
+  if (cachedResponse) {
+    return res.status(200).json(cachedResponse);
+  }
 
   const userQuery = {
     role: ROLES.UNIVERSITY,
@@ -133,13 +157,20 @@ const listUniversities = asyncHandler(async (req, res) => {
 
   const [total, universities] = await Promise.all([
     User.countDocuments(userQuery),
-    User.find(userQuery).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    User.find(userQuery)
+      .select("name email location website createdAt")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
   ]);
 
   const universityIds = universities.map((item) => item._id);
   const profiles = await UniversityProfile.find({
     university: { $in: universityIds },
-  }).lean();
+  })
+    .select("university universityName type city email website applicationFee programs")
+    .lean();
   const profileMap = new Map(profiles.map((item) => [String(item.university), item]));
 
   const items = universities
@@ -168,7 +199,7 @@ const listUniversities = asyncHandler(async (req, res) => {
     })
     .filter((uni) => (type === "all" ? true : uni.type.toLowerCase() === type));
 
-  return res.status(200).json({
+  const responsePayload = {
     success: true,
     data: {
       items,
@@ -179,25 +210,52 @@ const listUniversities = asyncHandler(async (req, res) => {
         totalPages: Math.ceil(total / limit),
       },
     },
-  });
+  };
+
+  await setCache(cacheKey, responsePayload, env.apiCacheTtlMs);
+
+  return res.status(200).json(responsePayload);
 });
 
 const getUniversityById = asyncHandler(async (req, res) => {
   ensureObjectId(req.params.id, "Invalid university id.");
+  const cacheKey = buildCacheKey(`${UNIVERSITY_DETAIL_CACHE_PREFIX}${String(req.params.id)}:`, {
+    includeProfile: true,
+  });
+  const cachedResponse = await getCache(cacheKey);
+  if (cachedResponse) {
+    return res.status(200).json(cachedResponse);
+  }
 
   const user = await User.findOne({
     _id: req.params.id,
     role: ROLES.UNIVERSITY,
     approvalStatus: UNIVERSITY_APPROVAL.APPROVED,
-  }).lean();
+  })
+    .select("name email location website")
+    .lean();
 
   if (!user) {
     throw new ApiError(404, "University not found.");
   }
 
-  const profile = await UniversityProfile.findOne({ university: user._id }).lean();
+  const profile = await UniversityProfile.findOne({ university: user._id })
+    .select(
+      [
+        "universityName",
+        "email",
+        "type",
+        "city",
+        "website",
+        "applicationFee",
+        "applicationStartDate",
+        "applicationEndDate",
+        "programs",
+      ].join(" ")
+    )
+    .lean();
 
-  return res.status(200).json({
+  const responsePayload = {
     success: true,
     data: {
       university: {
@@ -219,33 +277,57 @@ const getUniversityById = asyncHandler(async (req, res) => {
         profile,
       },
     },
-  });
+  };
+
+  await setCache(cacheKey, responsePayload, env.apiCacheTtlMs);
+
+  return res.status(200).json(responsePayload);
 });
 
 const getUniversityFormByUniversityId = asyncHandler(async (req, res) => {
   ensureObjectId(req.params.id, "Invalid university id.");
+  const cacheKey = buildCacheKey(`${UNIVERSITY_FORM_CACHE_PREFIX}${String(req.params.id)}:`, {
+    defaultFieldsVersion: 1,
+    systemTemplateId: SYSTEM_TEMPLATE_ID,
+  });
+  const cachedResponse = await getCache(cacheKey);
+  if (cachedResponse) {
+    return res.status(200).json(cachedResponse);
+  }
 
   const university = await User.findOne({
     _id: req.params.id,
     role: ROLES.UNIVERSITY,
     approvalStatus: UNIVERSITY_APPROVAL.APPROVED,
-  });
+  })
+    .select("_id")
+    .lean();
 
   if (!university) {
     throw new ApiError(404, "University not found.");
   }
 
-  const form = await UniversityForm.findOne({ university: req.params.id }).lean();
+  const form = await UniversityForm.findOne({ university: req.params.id })
+    .select("fields version updatedAt")
+    .lean();
+  const activeTemplate = getSystemApplicationTemplate();
 
-  return res.status(200).json({
+  const responsePayload = {
     success: true,
     data: {
       universityId: req.params.id,
       fields: form?.fields?.length ? form.fields : defaultApplicationFields,
+      templates: [activeTemplate],
+      activeTemplateId: SYSTEM_TEMPLATE_ID,
+      activeTemplate,
       version: form?.version || 1,
       updatedAt: form?.updatedAt || null,
     },
-  });
+  };
+
+  await setCache(cacheKey, responsePayload, env.apiCacheTtlMs);
+
+  return res.status(200).json(responsePayload);
 });
 
 const getMyProfile = asyncHandler(async (req, res) => {
@@ -274,6 +356,13 @@ const updateMyProfile = asyncHandler(async (req, res) => {
   const payload = { ...req.body };
   delete payload.university;
   delete payload._id;
+  if (Object.prototype.hasOwnProperty.call(payload, "logo")) {
+    payload.logo = await persistMaybeDataUrl({
+      value: payload.logo,
+      folder: `university-profiles/${String(req.user._id)}`,
+      preferredName: payload.shortName || payload.universityName || "university-logo",
+    });
+  }
 
   const profile = await UniversityProfile.findOneAndUpdate(
     { university: req.user._id },
@@ -290,6 +379,7 @@ const updateMyProfile = asyncHandler(async (req, res) => {
       phone: profile.phone || req.user.phone,
     },
   });
+  invalidateUniversityPublicCache(req.user._id);
 
   return res.status(200).json({
     success: true,
@@ -300,11 +390,15 @@ const updateMyProfile = asyncHandler(async (req, res) => {
 
 const getMyForm = asyncHandler(async (req, res) => {
   const form = await UniversityForm.findOne({ university: req.user._id }).lean();
+  const activeTemplate = getSystemApplicationTemplate();
 
   return res.status(200).json({
     success: true,
     data: {
       fields: form?.fields?.length ? form.fields : defaultApplicationFields,
+      templates: [activeTemplate],
+      activeTemplateId: SYSTEM_TEMPLATE_ID,
+      activeTemplate,
       version: form?.version || 1,
       updatedAt: form?.updatedAt || null,
     },
@@ -345,6 +439,7 @@ const upsertMyForm = asyncHandler(async (req, res) => {
     },
     { upsert: true, new: true, runValidators: true }
   );
+  invalidateUniversityPublicCache(req.user._id);
 
   return res.status(200).json({
     success: true,
@@ -525,4 +620,5 @@ module.exports = {
   updateMyBloggerStatus,
   deleteMyBlogger,
   defaultApplicationFields,
+  invalidateUniversityPublicCache,
 };

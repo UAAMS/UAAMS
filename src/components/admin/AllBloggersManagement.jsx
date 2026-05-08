@@ -1,25 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../../lib/apiClient";
-
-const normalizeBlogger = (item) => ({
-  id: String(item?._id || item?.id || ""),
-  name: item?.name || "",
-  email: item?.email || "",
-  username: item?.username || "",
-  phone: item?.phone || "",
-  status: item?.status || "active",
-  managedUniversity:
-    typeof item?.managedUniversity === "object"
-      ? item.managedUniversity?.name || ""
-      : "",
-  createdAt: item?.createdAt || null,
-  postStats: item?.postStats || {
-    totalPosts: 0,
-    publishedPosts: 0,
-    draftPosts: 0,
-    totalViews: 0,
-  },
-});
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import {
+  deleteAdminBlogger,
+  fetchAdminBloggersManagement,
+  toggleAdminBloggerStatus,
+} from "../../store/slices/adminUsersManagementSlice";
 
 const formatDate = (value) => {
   if (!value) return "N/A";
@@ -33,40 +18,27 @@ const formatDate = (value) => {
 };
 
 function AllBloggersManagement() {
-  const [bloggers, setBloggers] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const dispatch = useAppDispatch();
+  const {
+    items: bloggers,
+    loading: isLoading,
+    error: loadError,
+    mutationError,
+    mutatingKeys,
+  } = useAppSelector((state) => state.adminUsersManagement.bloggers);
+  const error = mutationError || loadError;
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [activeId, setActiveId] = useState("");
-
-  const loadBloggers = async () => {
-    setIsLoading(true);
-    setError("");
-    try {
-      const params = new URLSearchParams();
-      params.set("limit", "200");
-      if (searchTerm.trim()) params.set("search", searchTerm.trim());
-      if (statusFilter !== "all") params.set("status", statusFilter);
-
-      const response = await api.get(`/admin/bloggers/management?${params.toString()}`);
-      const items = response?.data?.items || [];
-      setBloggers(items.map(normalizeBlogger));
-    } catch (loadError) {
-      setError(loadError?.message || "Unable to load bloggers.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const activeId = mutatingKeys[0] || "";
 
   useEffect(() => {
     const timeout = setTimeout(() => {
-      loadBloggers();
+      dispatch(fetchAdminBloggersManagement({ searchTerm, statusFilter }));
     }, 250);
 
     return () => clearTimeout(timeout);
-  }, [searchTerm, statusFilter]);
+  }, [dispatch, searchTerm, statusFilter]);
 
   const stats = useMemo(
     () => ({
@@ -81,19 +53,12 @@ function AllBloggersManagement() {
 
   const handleToggleStatus = async (blogger) => {
     const nextStatus = blogger.status === "active" ? "inactive" : "active";
-    setActiveId(blogger.id);
-    setError("");
     try {
-      await api.patch(`/admin/users/${blogger.id}/status`, { status: nextStatus });
-      setBloggers((previous) =>
-        previous.map((item) =>
-          item.id === blogger.id ? { ...item, status: nextStatus } : item
-        )
-      );
-    } catch (statusError) {
-      setError(statusError?.message || "Unable to update blogger status.");
-    } finally {
-      setActiveId("");
+      await dispatch(
+        toggleAdminBloggerStatus({ bloggerId: blogger.id, status: nextStatus }),
+      ).unwrap();
+    } catch {
+      // Errors are surfaced from Redux state.
     }
   };
 
@@ -103,15 +68,10 @@ function AllBloggersManagement() {
     );
     if (!confirmed) return;
 
-    setActiveId(`${blogger.id}-delete`);
-    setError("");
     try {
-      await api.del(`/admin/users/${blogger.id}`);
-      setBloggers((previous) => previous.filter((item) => item.id !== blogger.id));
-    } catch (deleteError) {
-      setError(deleteError?.message || "Unable to delete blogger.");
-    } finally {
-      setActiveId("");
+      await dispatch(deleteAdminBlogger(blogger.id)).unwrap();
+    } catch {
+      // Errors are surfaced from Redux state.
     }
   };
 

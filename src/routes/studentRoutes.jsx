@@ -1,13 +1,27 @@
+import { lazy } from "react";
 import {Award,Bell,BookOpen,FileText,Home,TrendingUp,User,} from "lucide-react";
-import { Announcements } from "../components/student/Announcements";
-import { MeritLists } from "../components/student/MeritLists";
-import { MyApplications } from "../components/student/MyApplications";
-import { StudentBlog } from "../components/student/StudentBlog";
-import { UniversityRecommendations } from "../components/student/UniversityRecommendations";
-import { StudentOverviewPage } from "../pages/student/StudentOverviewPage";
-import { StudentProfilePage } from "../pages/student/StudentProfilePage";
-import { StudentApplicationFormPage } from "../pages/student/StudentApplicationFormPage";
-import { StudentApplicationPaymentPage } from "../pages/student/StudentApplicationPaymentPage";
+
+const lazyNamed = (loader, exportName) =>
+  lazy(() => loader().then((module) => ({ default: module[exportName] })));
+
+const Announcements = lazyNamed(() => import("../components/student/Announcements"), "Announcements");
+const MeritLists = lazyNamed(() => import("../components/student/MeritLists"), "MeritLists");
+const MyApplications = lazyNamed(() => import("../components/student/MyApplications"), "MyApplications");
+const StudentBlog = lazyNamed(() => import("../components/student/StudentBlog"), "StudentBlog");
+const UniversityRecommendations = lazyNamed(
+  () => import("../components/student/UniversityRecommendations"),
+  "UniversityRecommendations",
+);
+const StudentOverviewPage = lazyNamed(() => import("../pages/student/StudentOverviewPage"), "StudentOverviewPage");
+const StudentProfilePage = lazyNamed(() => import("../pages/student/StudentProfilePage"), "StudentProfilePage");
+const StudentApplicationFormPage = lazyNamed(
+  () => import("../pages/student/StudentApplicationFormPage"),
+  "StudentApplicationFormPage",
+);
+const StudentApplicationPaymentPage = lazyNamed(
+  () => import("../pages/student/StudentApplicationPaymentPage"),
+  "StudentApplicationPaymentPage",
+);
 
 export const studentNavItems = [
   { to: "/student", label: "Overview", icon: Home, end: true },

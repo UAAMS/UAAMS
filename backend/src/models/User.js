@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const { ROLES, UNIVERSITY_APPROVAL, USER_STATUS } = require("../constants/roles");
+const { queueStructuredSync } = require("../structured/queue");
 
 const userSchema = new mongoose.Schema(
   {
@@ -88,6 +89,7 @@ const userSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,
+      index: true,
     },
     lastLoginAt: {
       type: Date,
@@ -121,6 +123,10 @@ const userSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+userSchema.index({ role: 1, approvalStatus: 1, status: 1 });
+userSchema.index({ role: 1, managedUniversity: 1, status: 1 });
+userSchema.index({ email: 1, role: 1 });
 
 userSchema.pre("validate", function setUniversityApproval(next) {
   if (this.role === ROLES.UNIVERSITY && !this.approvalStatus) {
@@ -165,5 +171,35 @@ userSchema.methods.toSafeObject = function toSafeObject() {
     updatedAt: this.updatedAt,
   };
 };
+
+const queueUserSync = (action, id) => {
+  const entityId = String(id || "").trim();
+  if (!entityId) return;
+  void queueStructuredSync({ entityType: "user", entityId, action }).catch(() => {});
+};
+
+userSchema.post("save", function onSave(doc) {
+  queueUserSync("upsert", doc?._id || this?._id);
+});
+
+userSchema.post("findOneAndUpdate", function onFindOneAndUpdate(doc) {
+  if (!doc?._id) return;
+  queueUserSync("upsert", doc._id);
+});
+
+userSchema.post("findOneAndDelete", function onFindOneAndDelete(doc) {
+  if (!doc?._id) return;
+  queueUserSync("delete", doc._id);
+});
+
+userSchema.post("deleteOne", { document: true, query: false }, function onDeleteOneDocument(doc) {
+  queueUserSync("delete", doc?._id || this?._id);
+});
+
+userSchema.post("deleteOne", { document: false, query: true }, function onDeleteOneQuery() {
+  const filter = this.getFilter ? this.getFilter() : {};
+  if (!filter?._id) return;
+  queueUserSync("delete", filter._id);
+});
 
 module.exports = mongoose.model("User", userSchema);

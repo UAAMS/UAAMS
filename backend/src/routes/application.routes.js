@@ -10,6 +10,8 @@ const {
   updateApplicationStatus,
   assignRollNumber,
   uploadAdmissionLetter,
+  downloadApplicationTemplatePdf,
+  downloadApplicationArchive,
 } = require("../controllers/application.controller");
 const { protect, authorize } = require("../middleware/auth.middleware");
 const { ROLES } = require("../constants/roles");
@@ -43,6 +45,16 @@ router.patch(
   "/:id/admission-letter",
   authorize(ROLES.UNIVERSITY, ROLES.ADMIN),
   uploadAdmissionLetter
+);
+router.get(
+  "/:id/template-pdf",
+  authorize(ROLES.STUDENT, ROLES.UNIVERSITY, ROLES.ADMIN),
+  downloadApplicationTemplatePdf
+);
+router.get(
+  "/:id/archive",
+  authorize(ROLES.UNIVERSITY, ROLES.ADMIN),
+  downloadApplicationArchive
 );
 
 router.get("/:id", getApplicationById);

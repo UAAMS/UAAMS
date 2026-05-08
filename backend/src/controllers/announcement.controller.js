@@ -4,6 +4,7 @@ const User = require("../models/User");
 const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
 const getPagination = require("../utils/pagination");
+const { persistMaybeDataUrl } = require("../utils/fileStorage");
 const { ROLES } = require("../constants/roles");
 
 const ensureObjectId = (id, message = "Invalid resource id.") => {
@@ -94,6 +95,12 @@ const createAnnouncement = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Title and content are required.");
   }
 
+  const persistedAttachmentUrl = await persistMaybeDataUrl({
+    value: attachmentUrl,
+    folder: `announcements/${String(req.user._id)}`,
+    preferredName: attachmentName || title || "announcement-attachment",
+  });
+
   const announcement = await Announcement.create({
     university: req.user._id,
     createdBy: req.user._id,
@@ -101,7 +108,7 @@ const createAnnouncement = asyncHandler(async (req, res) => {
     content: String(content).trim(),
     type: String(type || "general"),
     category: String(category || "General"),
-    attachmentUrl: String(attachmentUrl || "").trim(),
+    attachmentUrl: String(persistedAttachmentUrl || "").trim(),
     attachmentName: String(attachmentName || "").trim(),
     status: String(status || "draft"),
     publishedAt: status === "published" ? new Date() : null,
@@ -134,6 +141,11 @@ const updateAnnouncement = asyncHandler(async (req, res) => {
   delete updates.createdBy;
 
   if (Object.prototype.hasOwnProperty.call(updates, "attachmentUrl")) {
+    updates.attachmentUrl = await persistMaybeDataUrl({
+      value: updates.attachmentUrl,
+      folder: `announcements/${String(announcement.university)}`,
+      preferredName: updates.attachmentName || updates.title || announcement.title || "announcement-attachment",
+    });
     updates.attachmentUrl = String(updates.attachmentUrl || "").trim();
   }
   if (Object.prototype.hasOwnProperty.call(updates, "attachmentName")) {

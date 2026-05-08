@@ -26,4 +26,8 @@ const announcementSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+announcementSchema.index({ university: 1, status: 1, createdAt: -1 });
+announcementSchema.index({ status: 1, publishedAt: -1, createdAt: -1 });
+announcementSchema.index({ university: 1, type: 1, status: 1 });
+
 module.exports = mongoose.model("Announcement", announcementSchema);

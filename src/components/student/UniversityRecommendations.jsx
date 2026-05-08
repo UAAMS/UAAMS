@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { School, MapPin, DollarSign, Calendar, TrendingUp } from "lucide-react";
-import { getRecommendedUniversities } from "../../data/universityRecommendationsData";
 import { onDataUpdated } from "../../lib/socketClient";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import { fetchRecommendations } from "../../store/slices/recommendationsSlice";
 
 const clampPercentage = (value) => Math.max(0, Math.min(100, Number(value || 0)));
 const hasDeadlinePassed = (value) => {
@@ -41,49 +42,30 @@ const resolveProgramRecommendations = (university) => {
 };
 
 function UniversityRecommendations() {
+  const dispatch = useAppDispatch();
+  const {
+    items: universities,
+    loading: recommendationsLoading,
+    error: recommendationsError,
+  } = useAppSelector((state) => state.recommendations);
   const [selectedFilters, setSelectedFilters] = useState({
     type: "all",
     minAggregate: 0,
     maxFee: 1000000,
   });
-  const [universities, setUniversities] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
 
   useEffect(() => {
-    let isMounted = true;
-
-    const loadRecommendations = async ({ silent = false } = {}) => {
-      if (!silent) {
-        setIsLoading(true);
-      }
-      setError("");
-      try {
-        const items = await getRecommendedUniversities();
-        if (!isMounted) return;
-        setUniversities(Array.isArray(items) ? items : []);
-      } catch (err) {
-        if (!isMounted) return;
-        setError(err?.message || "Unable to load recommendations.");
-      } finally {
-        if (isMounted && !silent) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadRecommendations();
+    dispatch(fetchRecommendations());
     const unsubscribe = onDataUpdated((event) => {
       if (event?.resource === "programs") {
-        loadRecommendations({ silent: true });
+        dispatch(fetchRecommendations({ force: true }));
       }
     });
 
     return () => {
-      isMounted = false;
       unsubscribe();
     };
-  }, []);
+  }, [dispatch]);
 
   const filteredUniversities = useMemo(
     () =>
@@ -184,32 +166,21 @@ function UniversityRecommendations() {
         </div>
       </div>
 
-      <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
-        <div className="flex items-start gap-3">
-          <TrendingUp className="w-5 h-5 text-emerald-600 mt-1" />
-          <div>
-            <h3 className="text-emerald-900 mb-1">Match Score Explanation</h3>
-            <p className="text-emerald-700 text-sm">
-              Universities are ranked based on your aggregate, eligibility criteria, program
-              availability, and preferences.
-            </p>
-          </div>
-        </div>
-      </div>
+      
 
-      {isLoading ? (
+      {recommendationsLoading ? (
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
           Loading recommendations...
         </div>
       ) : null}
 
-      {!isLoading && error ? (
+      {!recommendationsLoading && recommendationsError ? (
         <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
-          {error}
+          {recommendationsError}
         </div>
       ) : null}
 
-      {!isLoading && !error && filteredUniversities.length === 0 ? (
+      {!recommendationsLoading && !recommendationsError && filteredUniversities.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
           No universities found for current filters.
         </div>
@@ -336,14 +307,17 @@ function UniversityCard({ university }) {
                           <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700">
                             Match {Number(program.matchScore || 0)}%
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => handleApplyClick(program.name)}
-                            disabled={isApplyDisabled}
-                            className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {isApplyDisabled ? "Unavailable" : "Apply Now"}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleApplyClick(program.name)}
+                              disabled={isApplyDisabled}
+                              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isApplyDisabled ? "Unavailable" : "Apply Now"}
+                            </button>
+                            
+                          </div>
                         </div>
                       </>
                     );
@@ -351,11 +325,7 @@ function UniversityCard({ university }) {
                 </div>
               ))}
             </div>
-            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-              <p className="text-emerald-800 text-sm">
-                Each program has its own match score based on its minimum aggregate requirement.
-              </p>
-            </div>
+           
           </div>
         ) : null}
 

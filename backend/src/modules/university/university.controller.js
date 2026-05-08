@@ -8,6 +8,8 @@ const ApiError = require("../../utils/ApiError");
 const asyncHandler = require("../../utils/asyncHandler");
 const getPagination = require("../../utils/pagination");
 const { emitDataUpdate } = require("../../utils/socket");
+const { persistMaybeDataUrl } = require("../../utils/fileStorage");
+const { normalizePaymentMethods } = require("../../utils/paymentMethods");
 const {
   sendRollNumberAssignedEmail,
   sendAdmissionLetterIssuedEmail,
@@ -24,6 +26,7 @@ const {
   createBlogger,
   updateMyBloggerStatus,
   deleteMyBlogger,
+  invalidateUniversityPublicCache,
 } = require("../../controllers/university.controller");
 
 const ensureObjectId = (id, message = "Invalid resource id.") => {
@@ -85,6 +88,7 @@ const sanitizeProfilePayload = (payload = {}) => {
     "allowAutoFillFromStudentProfile",
     "notifications",
     "programs",
+    "paymentMethods",
   ];
 
   const sanitized = {};
@@ -96,6 +100,37 @@ const sanitizeProfilePayload = (payload = {}) => {
 
   return sanitized;
 };
+
+const ROLL_NUMBER_RECORD_PROJECTION = [
+  "applicationCode",
+  "student",
+  "studentName",
+  "email",
+  "program",
+  "aggregate",
+  "status",
+  "payment.status",
+  "rollNumber",
+  "eligibleForAdmissionLetter",
+  "createdAt",
+  "updatedAt",
+].join(" ");
+
+const ADMISSION_LETTER_RECORD_PROJECTION = [
+  "applicationCode",
+  "student",
+  "studentName",
+  "email",
+  "program",
+  "aggregate",
+  "status",
+  "payment.status",
+  "rollNumber",
+  "eligibleForAdmissionLetter",
+  "admissionLetter",
+  "createdAt",
+  "updatedAt",
+].join(" ");
 
 const syncUniversityUserFromProfile = async (reqUser, profile) => {
   await User.findByIdAndUpdate(reqUser._id, {
@@ -201,6 +236,16 @@ const updateMySettings = asyncHandler(async (req, res) => {
   const payload = sanitizeProfilePayload(req.body);
   delete payload._id;
   delete payload.university;
+  if (Object.prototype.hasOwnProperty.call(payload, "logo")) {
+    payload.logo = await persistMaybeDataUrl({
+      value: payload.logo,
+      folder: `university-profiles/${String(req.user._id)}`,
+      preferredName: payload.shortName || payload.universityName || "university-logo",
+    });
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "paymentMethods")) {
+    payload.paymentMethods = normalizePaymentMethods(payload.paymentMethods);
+  }
 
   const profile = await UniversityProfile.findOneAndUpdate(
     { university: req.user._id },
@@ -215,6 +260,7 @@ const updateMySettings = asyncHandler(async (req, res) => {
   );
 
   await syncUniversityUserFromProfile(req.user, profile);
+  invalidateUniversityPublicCache(req.user._id);
 
   const shouldBroadcastRecommendations = [
     "programs",
@@ -291,6 +337,7 @@ const updateMyPrograms = asyncHandler(async (req, res) => {
     },
     { new: true, upsert: true, runValidators: true }
   );
+  invalidateUniversityPublicCache(req.user._id);
 
   emitDataUpdate({
     resource: "programs",
@@ -365,6 +412,12 @@ const createMyAnnouncement = asyncHandler(async (req, res) => {
 
   const normalizedStatus = status === "published" ? "published" : "draft";
 
+  const persistedAttachmentUrl = await persistMaybeDataUrl({
+    value: attachmentUrl,
+    folder: `announcements/${String(req.user._id)}`,
+    preferredName: attachmentName || title || "announcement-attachment",
+  });
+
   const announcement = await Announcement.create({
     university: req.user._id,
     createdBy: req.user._id,
@@ -372,7 +425,7 @@ const createMyAnnouncement = asyncHandler(async (req, res) => {
     content: String(content).trim(),
     type: String(type || "general"),
     category: String(category || "General"),
-    attachmentUrl: String(attachmentUrl || "").trim(),
+    attachmentUrl: String(persistedAttachmentUrl || "").trim(),
     attachmentName: String(attachmentName || "").trim(),
     status: normalizedStatus,
     publishedAt: normalizedStatus === "published" ? new Date() : null,
@@ -414,6 +467,11 @@ const updateMyAnnouncement = asyncHandler(async (req, res) => {
   delete updates.createdBy;
 
   if (Object.prototype.hasOwnProperty.call(updates, "attachmentUrl")) {
+    updates.attachmentUrl = await persistMaybeDataUrl({
+      value: updates.attachmentUrl,
+      folder: `announcements/${String(req.user._id)}`,
+      preferredName: updates.attachmentName || updates.title || "announcement-attachment",
+    });
     updates.attachmentUrl = String(updates.attachmentUrl || "").trim();
   }
   if (Object.prototype.hasOwnProperty.call(updates, "attachmentName")) {
@@ -530,6 +588,12 @@ const createMyBlog = asyncHandler(async (req, res) => {
 
   const normalizedStatus = status === "published" ? "published" : "draft";
 
+  const persistedImageUrl = await persistMaybeDataUrl({
+    value: imageUrl,
+    folder: `blogs/${String(req.user._id)}`,
+    preferredName: title || "blog-image",
+  });
+
   const post = await BlogPost.create({
     author: req.user._id,
     university: req.user._id,
@@ -543,7 +607,7 @@ const createMyBlog = asyncHandler(async (req, res) => {
           .split(",")
           .map((item) => item.trim())
           .filter(Boolean),
-    imageUrl: String(imageUrl || ""),
+    imageUrl: String(persistedImageUrl || ""),
     status: normalizedStatus,
     readTime: calculateReadTime(content),
     publishedAt: normalizedStatus === "published" ? new Date() : null,
@@ -595,6 +659,15 @@ const updateMyBlog = asyncHandler(async (req, res) => {
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updates, "imageUrl")) {
+    updates.imageUrl = await persistMaybeDataUrl({
+      value: updates.imageUrl,
+      folder: `blogs/${String(req.user._id)}`,
+      preferredName: updates.title || post.title || "blog-image",
+    });
+    updates.imageUrl = String(updates.imageUrl || "");
   }
 
   if (updates.status === "published" && !post.publishedAt) {
@@ -677,6 +750,7 @@ const listMyRollNumbers = asyncHandler(async (req, res) => {
   const [total, applications] = await Promise.all([
     Application.countDocuments(query),
     Application.find(query)
+      .select(ROLL_NUMBER_RECORD_PROJECTION)
       .sort({ updatedAt: -1, createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -726,10 +800,16 @@ const upsertMyRollNumber = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Payment is not completed for this application.");
   }
 
+  const persistedSlipFileUrl = await persistMaybeDataUrl({
+    value: slipFileUrl,
+    folder: `applications/${String(application._id)}/roll-slips`,
+    preferredName: slipFileName || `roll-slip-${String(number || "assigned")}`,
+  });
+
   application.rollNumber = {
     assigned: true,
     number: String(number).trim(),
-    slipFileUrl: String(slipFileUrl || ""),
+    slipFileUrl: String(persistedSlipFileUrl || ""),
     slipFileName: String(slipFileName || ""),
     assignedAt: new Date(),
     assignedBy: req.user._id,
@@ -825,6 +905,7 @@ const listMyAdmissionLetters = asyncHandler(async (req, res) => {
   const [total, applications] = await Promise.all([
     Application.countDocuments(query),
     Application.find(query)
+      .select(ADMISSION_LETTER_RECORD_PROJECTION)
       .sort({ updatedAt: -1, createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -876,10 +957,16 @@ const upsertMyAdmissionLetter = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Payment is not completed for this application.");
   }
 
+  const persistedLetterFileUrl = await persistMaybeDataUrl({
+    value: fileUrl,
+    folder: `applications/${String(application._id)}/admission-letters`,
+    preferredName: fileName || `admission-letter-${String(letterNumber || "issued")}`,
+  });
+
   application.admissionLetter = {
     issued: true,
     letterNumber: String(letterNumber).trim(),
-    fileUrl: String(fileUrl).trim(),
+    fileUrl: String(persistedLetterFileUrl || "").trim(),
     fileName: String(fileName || "").trim(),
     remarks: String(remarks || ""),
     sentToStudent: Boolean(sentToStudent),

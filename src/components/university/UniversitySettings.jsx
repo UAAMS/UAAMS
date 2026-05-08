@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { Save } from "lucide-react";
-import { api } from "../../lib/apiClient";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import {
+  clearUniversityAccountMessages,
+  fetchUniversitySettings,
+  updateUniversitySettings,
+} from "../../store/slices/universityAccountSlice";
 
 const defaultSettings = {
   universityName: "",
@@ -31,6 +36,7 @@ const defaultSettings = {
   applicationEndDate: "",
   acceptApplicationsThroughUaams: true,
   allowAutoFillFromStudentProfile: true,
+  paymentMethods: [],
   notifications: {
     emailOnNewApplication: true,
     dailySummary: true,
@@ -38,57 +44,31 @@ const defaultSettings = {
   },
 };
 
-const toDateInputValue = (value) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-const normalizeProfile = (profile = {}) => ({
-  ...defaultSettings,
-  ...profile,
-  applicationFee: String(profile?.applicationFee ?? 0),
-  applicationStartDate: toDateInputValue(profile?.applicationStartDate),
-  applicationEndDate: toDateInputValue(profile?.applicationEndDate),
-  notifications: {
-    ...defaultSettings.notifications,
-    ...(profile?.notifications || {}),
-  },
-});
-
 function UniversitySettings() {
-  const [formData, setFormData] = useState(defaultSettings);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  const dispatch = useAppDispatch();
+  const {
+    data: storedSettings,
+    loading: isLoading,
+    saving: isSaving,
+    error: loadError,
+    saveError,
+    successMessage,
+  } = useAppSelector((state) => state.universityAccount.settings);
+  const error = saveError || loadError;
 
-  const loadSettings = async () => {
-    setIsLoading(true);
-    setError("");
-    try {
-      const response = await api.get("/universities/me/settings");
-      const profile = response?.data?.profile || {};
-      setFormData(normalizeProfile(profile));
-    } catch (loadError) {
-      setError(loadError?.message || "Unable to load university settings.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const [formData, setFormData] = useState(defaultSettings);
 
   useEffect(() => {
-    loadSettings();
-  }, []);
+    dispatch(fetchUniversitySettings());
+  }, [dispatch]);
+
+  useEffect(() => {
+    setFormData(storedSettings || defaultSettings);
+  }, [storedSettings]);
 
   const updateField = (field, value) => {
     setFormData((previous) => ({ ...previous, [field]: value }));
-    if (error) setError("");
-    if (successMessage) setSuccessMessage("");
+    dispatch(clearUniversityAccountMessages());
   };
 
   const updateNotification = (field, value) => {
@@ -99,33 +79,14 @@ function UniversitySettings() {
         [field]: value,
       },
     }));
-    if (error) setError("");
-    if (successMessage) setSuccessMessage("");
+    dispatch(clearUniversityAccountMessages());
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    setIsSaving(true);
-    setError("");
-    setSuccessMessage("");
-
     try {
-      const payload = {
-        ...formData,
-        applicationFee: Number(formData.applicationFee || 0),
-        applicationStartDate: formData.applicationStartDate || null,
-        applicationEndDate: formData.applicationEndDate || null,
-      };
-
-      const response = await api.put("/universities/me/settings", payload);
-      const profile = response?.data?.profile || payload;
-      setFormData(normalizeProfile(profile));
-      setSuccessMessage(response?.message || "Settings saved successfully.");
-    } catch (saveError) {
-      setError(saveError?.message || "Unable to save university settings.");
-    } finally {
-      setIsSaving(false);
-    }
+      await dispatch(updateUniversitySettings(formData)).unwrap();
+    } catch {}
   };
 
   if (isLoading) {

@@ -34,4 +34,8 @@ const blogCommentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+blogCommentSchema.index({ post: 1, createdAt: 1 });
+blogCommentSchema.index({ post: 1, parentComment: 1, createdAt: 1 });
+blogCommentSchema.index({ student: 1, createdAt: -1 });
+
 module.exports = mongoose.model("BlogComment", blogCommentSchema);

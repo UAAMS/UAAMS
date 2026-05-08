@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search, Download, Eye, CheckCircle, XCircle, Clock } from "lucide-react";
-import { api } from "../../lib/apiClient";
-import { downloadPdfDocument } from "../../lib/pdfDownload";
 import { onDataUpdated } from "../../lib/socketClient";
+import { api } from "../../lib/apiClient";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import {
+  clearApplicationsErrors,
+  fetchUniversityApplications,
+  updateUniversityApplicationStatus,
+} from "../../store/slices/applicationsSlice";
 
 const formatDate = (value) => {
   if (!value) return "N/A";
@@ -37,72 +42,62 @@ const nextStatusOptionsByCurrent = {
 };
 
 function ManageApplications() {
+  const dispatch = useAppDispatch();
+  const {
+    items: universityApplications,
+    loading: isLoading,
+    error,
+  } = useAppSelector((state) => state.applications.university);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("all");
   const [selectedProgram, setSelectedProgram] = useState("all");
   const [selectedApplication, setSelectedApplication] = useState(null);
-  const [applications, setApplications] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [downloadError, setDownloadError] = useState("");
+  const [downloadingId, setDownloadingId] = useState("");
+
+  const applications = useMemo(
+    () => (universityApplications || []).map(normalizeApplication),
+    [universityApplications],
+  );
+  const isInitialLoading = isLoading && applications.length === 0;
 
   useEffect(() => {
-    let isMounted = true;
-
-    const loadApplications = async ({ silent = false } = {}) => {
-      if (!silent) {
-        setIsLoading(true);
-      }
-      setError("");
-      try {
-        const response = await api.get("/applications/university/me?limit=200");
-        const items = response?.data?.applications || [];
-        if (!isMounted) return;
-        setApplications(items.map(normalizeApplication));
-      } catch (loadError) {
-        if (!isMounted) return;
-        setError(loadError?.message || "Unable to load applications.");
-      } finally {
-        if (isMounted && !silent) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadApplications();
+    dispatch(clearApplicationsErrors());
+    dispatch(fetchUniversityApplications());
     const unsubscribe = onDataUpdated((event) => {
       if (event?.resource === "applications") {
-        loadApplications({ silent: true });
+        dispatch(fetchUniversityApplications());
       }
     });
     return () => {
-      isMounted = false;
       unsubscribe();
+      dispatch(clearApplicationsErrors());
     };
-  }, []);
+  }, [dispatch]);
 
-  const downloadApplicationSummary = (application) => {
-    const statusLabel = application.status
-      .split("-")
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(" ");
-
-    downloadPdfDocument({
-      title: "University Application Review Summary",
-      fileName: `${application.code || "application"}-review-summary.pdf`,
-      lines: [
-        `Application Code: ${application.code}`,
-        `Student Name: ${application.studentName}`,
-        `Email: ${application.email}`,
-        `Program: ${application.program}`,
-        `Applied Date: ${application.appliedDate}`,
-        `Status: ${statusLabel}`,
-        `Aggregate: ${application.aggregate}%`,
-        `Matric Marks: ${application.matricMarks}/1100`,
-        `Inter Marks: ${application.interMarks}/1100`,
-        `Test Score: ${application.testScore}/100`,
-        `CNIC: ${application.cnic || "N/A"}`,
-      ],
-    });
+  const downloadApplicationArchive = async (application) => {
+    setDownloadError("");
+    setDownloadingId(application.id);
+    try {
+      const blob = await api.getBlob(`/applications/${application.id}/archive`);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${String(application.code || "application").toLowerCase()}-application-package.zip`;
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (downloadFailure) {
+      setDownloadError(
+        downloadFailure?.message ||
+          "Unable to download application package. Make sure the application documents are available.",
+      );
+    } finally {
+      setDownloadingId("");
+    }
   };
 
   const filteredApplications = useMemo(() => {
@@ -125,11 +120,13 @@ function ManageApplications() {
   );
 
   const updateApplicationStatus = async (applicationId, status) => {
-    const response = await api.patch(`/applications/${applicationId}/status`, { status });
-    const updated = normalizeApplication(response?.data?.application || {});
-
-    setApplications((previous) =>
-      previous.map((item) => (item.id === applicationId ? { ...item, ...updated } : item)),
+    dispatch(clearApplicationsErrors());
+    const updatedApplication = await dispatch(
+      updateUniversityApplicationStatus({ applicationId, status }),
+    ).unwrap();
+    const updated = normalizeApplication(updatedApplication || {});
+    setSelectedApplication((previous) =>
+      previous && previous.id === applicationId ? { ...previous, ...updated } : previous,
     );
   };
 
@@ -190,17 +187,22 @@ function ManageApplications() {
         </div>
       </div>
 
-      {isLoading ? (
+      {isInitialLoading ? (
         <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-600">
           Loading applications...
         </div>
       ) : null}
 
-      {!isLoading && error ? (
+      {!isInitialLoading && error ? (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
       ) : null}
+      {!isInitialLoading && !error && downloadError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {downloadError}
+        </div>
+      ) : null}
 
-      {!isLoading && !error ? (
+      {!isInitialLoading && !error ? (
         <>
           <div className="grid md:grid-cols-4 gap-4">
             <StatCard label="Total" count={applications.length} color="bg-blue-50 text-blue-600" />
@@ -261,9 +263,10 @@ function ManageApplications() {
                             <Eye className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => downloadApplicationSummary(application)}
+                            onClick={() => downloadApplicationArchive(application)}
+                            disabled={downloadingId === application.id}
                             className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                            title="Download"
+                            title="Download application package"
                           >
                             <Download className="w-4 h-4" />
                           </button>
@@ -351,7 +354,11 @@ function ApplicationDetailModal({ application, onClose, onStatusSave }) {
       await onStatusSave(status);
       onClose();
     } catch (saveError) {
-      setError(saveError?.message || "Unable to update status.");
+      setError(
+        typeof saveError === "string"
+          ? saveError
+          : saveError?.message || "Unable to update status.",
+      );
     } finally {
       setIsSaving(false);
     }

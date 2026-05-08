@@ -1,134 +1,54 @@
 import { useEffect, useMemo, useState } from "react";
 import { GripVertical, Plus, Save, Trash2, X } from "lucide-react";
-import { api } from "../../lib/apiClient";
-
-const defaultFields = [
-  {
-    id: "1",
-    label: "Full Name",
-    type: "text",
-    required: true,
-    placeholder: "Enter your full name",
-    options: [],
-  },
-  {
-    id: "2",
-    label: "Email Address",
-    type: "email",
-    required: true,
-    placeholder: "your.email@example.com",
-    options: [],
-  },
-  {
-    id: "3",
-    label: "Phone Number",
-    type: "tel",
-    required: true,
-    placeholder: "+92-300-1234567",
-    options: [],
-  },
-  {
-    id: "4",
-    label: "CNIC / B-Form",
-    type: "text",
-    required: true,
-    placeholder: "12345-1234567-1",
-    options: [],
-  },
-  {
-    id: "7",
-    label: "Matric Marks",
-    type: "number",
-    required: true,
-    placeholder: "Total marks obtained",
-    options: [],
-  },
-  {
-    id: "8",
-    label: "FSc/A-Level Marks",
-    type: "number",
-    required: true,
-    placeholder: "Total marks obtained",
-    options: [],
-  },
-];
-
-const normalizeField = (field, index) => ({
-  id: String(field?.id || field?._id || index + 1),
-  label: String(field?.label || "").trim(),
-  type: String(field?.type || "text"),
-  required: Boolean(field?.required),
-  placeholder: String(field?.placeholder || ""),
-  options: Array.isArray(field?.options) ? field.options.map(String) : [],
-});
-
-const normalizeProgram = (program, index) => ({
-  id: String(program?._id || program?.id || index + 1),
-  name: String(program?.name || "").trim(),
-  seats: Number(program?.seats || 0),
-  feeRange: String(program?.feeRange || "").trim(),
-  requiredAggregate: Number(program?.requiredAggregate || 0),
-  deadlineDate: program?.deadlineDate
-    ? new Date(program.deadlineDate).toISOString().slice(0, 10)
-    : "",
-  isAdmissionOpen: program?.isAdmissionOpen !== false,
-});
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import {
+  clearUniversityFormSetupMessages,
+  fetchUniversityFormSetup,
+  saveUniversityFormSetup,
+} from "../../store/slices/universityFormSetupSlice";
 
 function FormConfiguration() {
-  const [fields, setFields] = useState(defaultFields);
+  const dispatch = useAppDispatch();
+  const {
+    fields: storedFields,
+    programs: storedPrograms,
+    applicationFee: storedApplicationFee,
+    loading: isLoading,
+    saving: isSaving,
+    error: loadError,
+    saveError,
+    saveSuccessMessage,
+  } = useAppSelector((state) => state.universityFormSetup);
+
+  const [fields, setFields] = useState([]);
   const [showAddField, setShowAddField] = useState(false);
 
   const [programs, setPrograms] = useState([]);
   const [applicationFee, setApplicationFee] = useState("0");
   const [showAddProgram, setShowAddProgram] = useState(false);
   const [editingProgram, setEditingProgram] = useState(null);
-
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [statusMessage, setStatusMessage] = useState("");
+  const [localError, setLocalError] = useState("");
 
   useEffect(() => {
-    let isMounted = true;
+    dispatch(fetchUniversityFormSetup());
+  }, [dispatch]);
 
-    const loadConfiguration = async () => {
-      setIsLoading(true);
-      setError("");
-      try {
-        const [formRes, programsRes, settingsRes] = await Promise.all([
-          api.get("/universities/me/form"),
-          api.get("/universities/me/programs"),
-          api.get("/universities/me/settings"),
-        ]);
+  useEffect(() => {
+    setFields(Array.isArray(storedFields) ? storedFields : []);
+  }, [storedFields]);
 
-        if (!isMounted) return;
+  useEffect(() => {
+    setPrograms(Array.isArray(storedPrograms) ? storedPrograms : []);
+  }, [storedPrograms]);
 
-        const nextFields = Array.isArray(formRes?.data?.fields)
-          ? formRes.data.fields.map(normalizeField).filter((field) => field.label)
-          : [];
-        const nextPrograms = Array.isArray(programsRes?.data?.programs)
-          ? programsRes.data.programs.map(normalizeProgram).filter((program) => program.name)
-          : [];
-        const fee = settingsRes?.data?.profile?.applicationFee;
+  useEffect(() => {
+    setApplicationFee(String(storedApplicationFee ?? "0"));
+  }, [storedApplicationFee]);
 
-        setFields(nextFields.length > 0 ? nextFields : defaultFields);
-        setPrograms(nextPrograms);
-        setApplicationFee(String(Number(fee || 0)));
-      } catch (loadError) {
-        if (!isMounted) return;
-        setError(loadError?.message || "Unable to load form configuration.");
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadConfiguration();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  const resetMessages = () => {
+    setLocalError("");
+    dispatch(clearUniversityFormSetupMessages());
+  };
 
   const stats = useMemo(
     () => ({
@@ -141,92 +61,59 @@ function FormConfiguration() {
   );
 
   const handleAddField = (field) => {
+    resetMessages();
     setFields((previous) => [...previous, { ...field, id: `${Date.now()}` }]);
     setShowAddField(false);
-    setStatusMessage("");
   };
 
   const handleDeleteField = (id) => {
+    resetMessages();
     setFields((previous) => previous.filter((field) => field.id !== id));
-    setStatusMessage("");
   };
 
   const handleToggleRequired = (id) => {
+    resetMessages();
     setFields((previous) =>
       previous.map((field) =>
         field.id === id ? { ...field, required: !field.required } : field,
       ),
     );
-    setStatusMessage("");
   };
 
   const handleAddProgram = (program) => {
+    resetMessages();
     setPrograms((previous) => [...previous, { ...program, id: `${Date.now()}` }]);
     setShowAddProgram(false);
-    setStatusMessage("");
   };
 
   const handleEditProgram = (program) => {
+    resetMessages();
     setPrograms((previous) => previous.map((item) => (item.id === program.id ? program : item)));
     setEditingProgram(null);
-    setStatusMessage("");
   };
 
   const handleDeleteProgram = (id) => {
+    resetMessages();
     setPrograms((previous) => previous.filter((program) => program.id !== id));
-    setStatusMessage("");
   };
 
   const handleSave = async () => {
-    setIsSaving(true);
-    setError("");
-    setStatusMessage("");
-
+    resetMessages();
     try {
-      const sanitizedFields = fields
-        .map((field, index) => ({
-          id: String(field.id || index + 1),
-          label: String(field.label || "").trim(),
-          type: String(field.type || "text"),
-          required: Boolean(field.required),
-          placeholder: String(field.placeholder || ""),
-          options: Array.isArray(field.options)
-            ? field.options.map((option) => String(option).trim()).filter(Boolean)
-            : [],
-          order: index + 1,
-        }))
-        .filter((field) => field.label);
-
-      const sanitizedPrograms = programs
-        .map((program) => ({
-          name: String(program.name || "").trim(),
-          seats: Number(program.seats || 0),
-          feeRange: String(program.feeRange || "").trim(),
-          requiredAggregate: Number(program.requiredAggregate || 0),
-          deadlineDate: program.deadlineDate ? String(program.deadlineDate) : null,
-          isAdmissionOpen: program.isAdmissionOpen !== false,
-        }))
-        .filter((program) => program.name);
-
-      if (sanitizedFields.length === 0) {
-        throw new Error("At least one form field is required.");
-      }
-
-      await Promise.all([
-        api.put("/universities/me/form", { fields: sanitizedFields }),
-        api.put("/universities/me/programs", { programs: sanitizedPrograms }),
-        api.put("/universities/me/settings", {
-          applicationFee: Number(applicationFee || 0),
+      await dispatch(
+        saveUniversityFormSetup({
+          fields,
+          programs,
+          applicationFee,
         }),
-      ]);
-
-      setStatusMessage("Form fields, programs, and application fee saved successfully.");
+      ).unwrap();
     } catch (saveError) {
-      setError(saveError?.message || "Unable to save configuration.");
-    } finally {
-      setIsSaving(false);
+      setLocalError(saveError || "Unable to save configuration.");
     }
   };
+
+  const error = localError || saveError || loadError;
+  const statusMessage = saveSuccessMessage;
 
   return (
     <div className="space-y-6">
@@ -248,10 +135,11 @@ function FormConfiguration() {
         </button>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-4">
+      <div className="grid md:grid-cols-4 gap-4">
         <StatCard label="Form Fields" value={stats.totalFields} />
         <StatCard label="Required Fields" value={stats.requiredFields} />
         <StatCard label="Programs" value={stats.totalPrograms} subLabel={`Fee PKR ${stats.applicationFee.toLocaleString()}`} />
+        <StatCard label="Template Mode" value="Generated" subLabel="UAAMS creates the template automatically" />
       </div>
 
       {error ? (
@@ -304,7 +192,10 @@ function FormConfiguration() {
                 type="number"
                 min="0"
                 value={applicationFee}
-                onChange={(event) => setApplicationFee(event.target.value)}
+                onChange={(event) => {
+                  resetMessages();
+                  setApplicationFee(event.target.value);
+                }}
                 placeholder="e.g., 2500"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -330,6 +221,10 @@ function FormConfiguration() {
               <Plus className="w-4 h-4" />
               Add Program
             </button>
+          </div>
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+            Student preview and PDF download use an automatically generated UAAMS application
+            template. Only form fields, programs, and fee are configurable here.
           </div>
         </>
       ) : null}

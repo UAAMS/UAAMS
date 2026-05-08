@@ -3,88 +3,49 @@ import { Save, Upload, Building, Phone, MapPin, Users } from "lucide-react";
 import { Card } from "../ui/card";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { api } from "../../lib/apiClient";
 import { useAuth } from "../../context/AuthContext";
-
-const buildInitialProfile = (initialName = "University") => ({
-  universityName: initialName,
-  shortName: "",
-  type: "public",
-  established: "",
-  email: "",
-  phone: "",
-  website: "",
-  address: "",
-  city: "",
-  province: "",
-  postalCode: "",
-  about: "",
-  mission: "",
-  vision: "",
-  totalStudents: "",
-  totalPrograms: "",
-  ranking: "",
-  accreditation: "HEC",
-  representativeName: "",
-  representativePosition: "",
-  representativeEmail: "",
-  representativePhone: "",
-  logo: "",
-});
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import {
+  buildInitialUniversityProfile,
+  clearUniversityAccountMessages,
+  fetchUniversityProfile,
+  updateUniversityProfile,
+} from "../../store/slices/universityAccountSlice";
 
 function UniversityProfile({ initialName }) {
+  const dispatch = useAppDispatch();
   const { refreshUser } = useAuth();
+  const {
+    data: storedProfile,
+    loading: isLoading,
+    saving: isSaving,
+    error: loadError,
+    saveError,
+    statusMessage,
+  } = useAppSelector((state) => state.universityAccount.profile);
+  const effectiveStatusMessage = saveError || loadError || statusMessage;
+
   const [isEditing, setIsEditing] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [statusMessage, setStatusMessage] = useState("");
-  const [profileData, setProfileData] = useState(buildInitialProfile(initialName));
+  const [profileData, setProfileData] = useState(buildInitialUniversityProfile(initialName));
 
   useEffect(() => {
-    let isMounted = true;
+    dispatch(fetchUniversityProfile({ initialName }));
+  }, [dispatch, initialName]);
 
-    const loadProfile = async () => {
-      setIsLoading(true);
-      setStatusMessage("");
-      try {
-        const response = await api.get("/universities/me/profile");
-        const profile = response?.data?.profile || {};
-        if (!isMounted) return;
-        setProfileData((previous) => ({ ...previous, ...profile }));
-      } catch {
-        if (!isMounted) return;
-        setStatusMessage("Unable to load profile from server.");
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadProfile();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  useEffect(() => {
+    setProfileData(storedProfile || buildInitialUniversityProfile(initialName));
+  }, [storedProfile, initialName]);
 
   const handleSave = async () => {
-    setStatusMessage("");
-    setIsSaving(true);
     try {
-      const response = await api.put("/universities/me/profile", profileData);
-      const profile = response?.data?.profile || profileData;
-      setProfileData((previous) => ({ ...previous, ...profile }));
+      await dispatch(updateUniversityProfile({ profileData, initialName })).unwrap();
       await refreshUser();
       setIsEditing(false);
-      setStatusMessage("Profile updated successfully.");
-    } catch (error) {
-      setStatusMessage(error?.message || "Unable to update profile.");
-    } finally {
-      setIsSaving(false);
-    }
+    } catch {}
   };
 
   const handleChange = (field, value) => {
+    dispatch(clearUniversityAccountMessages());
     setProfileData((previous) => ({ ...previous, [field]: value }));
   };
 
@@ -129,8 +90,8 @@ function UniversityProfile({ initialName }) {
         )}
       </div>
 
-      {statusMessage ? (
-        <p className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">{statusMessage}</p>
+      {effectiveStatusMessage ? (
+        <p className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">{effectiveStatusMessage}</p>
       ) : null}
 
       <Card className="bg-white border border-slate-200 p-6">

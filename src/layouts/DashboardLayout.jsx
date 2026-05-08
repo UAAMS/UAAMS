@@ -2,6 +2,7 @@ import { Bell, LogOut, Menu, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useUI } from "../context/UIContext";
 import { onDataUpdated } from "../lib/socketClient";
 import "../styles/dashboard-layout.css";
 
@@ -124,11 +125,12 @@ const formatNotificationTime = (value) => {
 };
 
 export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
-  const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [isNotificationOpen, setNotificationOpen] = useState(false);
   const [studentNotifications, setStudentNotifications] = useState([]);
   const location = useLocation();
   const { currentUser, logout } = useAuth();
+  const { layout, setLayoutValue } = useUI();
+  const isSidebarOpen = Boolean(layout?.dashboardSidebarOpen);
 
   const themeClasses = useMemo(() => {
     const palettes = {
@@ -220,7 +222,7 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
               <div className="text-sm text-slate-500">{title}</div>
             </div>
             <button
-              onClick={() => setSidebarOpen(false)}
+              onClick={() => setLayoutValue("dashboardSidebarOpen", false)}
               className="dashboard-close-button rounded-md p-2 text-slate-500 hover:bg-slate-100"
               aria-label="Close menu"
             >
@@ -236,7 +238,7 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
                   key={item.to}
                   to={item.to}
                   end={item.end}
-                  onClick={() => setSidebarOpen(false)}
+                  onClick={() => setLayoutValue("dashboardSidebarOpen", false)}
                   className={({ isActive }) =>
                     `flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
                       isActive
@@ -258,16 +260,12 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => setSidebarOpen(true)}
+                  onClick={() => setLayoutValue("dashboardSidebarOpen", true)}
                   className="dashboard-menu-button rounded-md p-2 text-slate-600 hover:bg-slate-100"
                   aria-label="Open menu"
                 >
                   <Menu className="h-4 w-4" />
                 </button>
-                <div>
-                  <div className="text-slate-900">{title}</div>
-                  <div className="text-xs text-slate-500">Route: {location.pathname}</div>
-                </div>
               </div>
 
               <div className="flex items-center gap-3">
@@ -354,7 +352,7 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
       {isSidebarOpen && (
         <button
           className="dashboard-overlay"
-          onClick={() => setSidebarOpen(false)}
+          onClick={() => setLayoutValue("dashboardSidebarOpen", false)}
           aria-label="Close menu"
         />
       )}

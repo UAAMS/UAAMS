@@ -23,6 +23,10 @@ const blogPostSchema = new mongoose.Schema(
     status: { type: String, enum: ["draft", "published"], default: "draft", index: true },
     readTime: { type: String, default: "1 min" },
     views: { type: Number, default: 0, min: 0 },
+    viewedBy: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+      default: [],
+    },
     likes: {
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
       default: [],
@@ -31,5 +35,9 @@ const blogPostSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+blogPostSchema.index({ university: 1, status: 1, publishedAt: -1, createdAt: -1 });
+blogPostSchema.index({ author: 1, status: 1, updatedAt: -1, createdAt: -1 });
+blogPostSchema.index({ university: 1, category: 1, status: 1 });
 
 module.exports = mongoose.model("BlogPost", blogPostSchema);

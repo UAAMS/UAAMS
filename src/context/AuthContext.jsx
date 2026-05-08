@@ -195,22 +195,33 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
+    const role = currentUser?.role;
     setStoredToken("");
     setCurrentUser(null);
     disconnectRealtimeSocket();
-    if(window.location.pathname === "/student") {
-      window.location.href = "/login/student";
-    }
-    else if (window.location.pathname === "/university") {
-      window.location.href = "/login/university";
-    }
-    else if (window.location.pathname === "/blogger") {
-      window.location.href = "/login/blogger";
-    }
-    else if (window.location.pathname === "/admin") {
-      window.location.href = "/login/admin";
+
+    const redirectByRole = {
+      student: "/login/student",
+      university: "/login/university",
+      blogger: "/login/blogger",
+      admin: "/login/admin",
+    };
+
+    if (role && redirectByRole[role]) {
+      window.location.href = redirectByRole[role];
+      return;
     }
 
+    const pathname = window.location.pathname;
+    if (pathname === "/student" || pathname.startsWith("/student/")) {
+      window.location.href = "/login/student";
+    } else if (pathname === "/university" || pathname.startsWith("/university/")) {
+      window.location.href = "/login/university";
+    } else if (pathname === "/blogger" || pathname.startsWith("/blogger/")) {
+      window.location.href = "/login/blogger";
+    } else if (pathname === "/admin" || pathname.startsWith("/admin/")) {
+      window.location.href = "/login/admin";
+    }
   };
 
   const refreshUser = async () => {

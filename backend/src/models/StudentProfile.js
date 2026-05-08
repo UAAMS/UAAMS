@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { queueStructuredSync } = require("../structured/queue");
 
 const studentProfileSchema = new mongoose.Schema(
   {
@@ -53,6 +54,10 @@ const studentProfileSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+studentProfileSchema.index({ email: 1 });
+studentProfileSchema.index({ cnic: 1 });
+studentProfileSchema.index({ city: 1, province: 1 });
+
 studentProfileSchema.pre("save", function autoCalculatePercentages(next) {
   if (this.matricTotalMarks > 0 && this.matricObtainedMarks > 0) {
     this.matricPercentage = Number(
@@ -67,6 +72,40 @@ studentProfileSchema.pre("save", function autoCalculatePercentages(next) {
   }
 
   next();
+});
+
+const queueStudentProfileSync = (action, userId) => {
+  const entityId = String(userId || "").trim();
+  if (!entityId) return;
+  void queueStructuredSync({ entityType: "studentProfile", entityId, action }).catch(() => {});
+};
+
+studentProfileSchema.post("save", function onSave(doc) {
+  queueStudentProfileSync("upsert", doc?.user || this?.user);
+});
+
+studentProfileSchema.post("findOneAndUpdate", function onFindOneAndUpdate(doc) {
+  if (!doc?.user) return;
+  queueStudentProfileSync("upsert", doc.user);
+});
+
+studentProfileSchema.post("findOneAndDelete", function onFindOneAndDelete(doc) {
+  if (!doc?.user) return;
+  queueStudentProfileSync("delete", doc.user);
+});
+
+studentProfileSchema.post(
+  "deleteOne",
+  { document: true, query: false },
+  function onDeleteOneDocument(doc) {
+    queueStudentProfileSync("delete", doc?.user || this?.user);
+  }
+);
+
+studentProfileSchema.post("deleteOne", { document: false, query: true }, function onDeleteOneQuery() {
+  const filter = this.getFilter ? this.getFilter() : {};
+  if (!filter?.user) return;
+  queueStudentProfileSync("delete", filter.user);
 });
 
 module.exports = mongoose.model("StudentProfile", studentProfileSchema);

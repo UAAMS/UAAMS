@@ -1,1 +1,5 @@
 node_modules
+backend/uploads/*
+!backend/uploads/system/
+backend/uploads/system/*
+!backend/uploads/system/uaams-application-template.jpg

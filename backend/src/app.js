@@ -1,6 +1,8 @@
 const express = require("express");
 const cors = require("cors");
+const compression = require("compression");
 const morgan = require("morgan");
+const path = require("path");
 const env = require("./config/env");
 const routes = require("./routes");
 const { notFound, errorHandler } = require("./middleware/error.middleware");
@@ -29,9 +31,18 @@ app.use(
     credentials: true,
   })
 );
+if (env.compressionEnabled) {
+  app.use(
+    compression({
+      level: 6,
+      threshold: 1024,
+    }),
+  );
+}
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan(env.nodeEnv === "production" ? "combined" : "dev"));
+app.use("/uploads", express.static(path.resolve(env.uploadsDir)));
 
 app.get("/", (_req, res) => {
   res.status(200).json({

@@ -11,6 +11,11 @@ import {
 import { api } from "../../lib/apiClient";
 import { downloadPdfDocument, downloadPdfFromUrl } from "../../lib/pdfDownload";
 import { onDataUpdated } from "../../lib/socketClient";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import {
+  deleteDraftApplication,
+  fetchStudentApplications,
+} from "../../store/slices/applicationsSlice";
 
 const statusOptions = [
   { key: "all", label: "All" },
@@ -23,69 +28,27 @@ const statusOptions = [
   { key: "finalized", label: "Finalized" },
 ];
 
-const formatDate = (value) => {
-  if (!value) return "N/A";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "N/A";
-  return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-};
-
-const normalizeApplication = (item) => ({
-  id: String(item?._id || item?.id || ""),
-  applicationCode: item?.applicationCode || "N/A",
-  universityId: String(item?.university?._id || item?.university?.id || item?.university || ""),
-  university: item?.university?.name || "University",
-  program: item?.program || "Program",
-  appliedDate: formatDate(item?.appliedAt || item?.createdAt),
-  lastUpdate: formatDate(item?.updatedAt || item?.createdAt),
-  status: item?.status || "not-submitted",
-  paymentStatus: item?.payment?.status || "unpaid",
-  rollNumberSlip: item?.rollNumber?.slipFileUrl || "",
-  rollNumberSlipName: item?.rollNumber?.slipFileName || "",
-  admissionLetter: item?.admissionLetter?.fileUrl || "",
-  admissionLetterName: item?.admissionLetter?.fileName || "",
-});
-
 export function MyApplications() {
+  const dispatch = useAppDispatch();
+  const { items: applications, loading: isLoading, error } = useAppSelector(
+    (state) => state.applications.student,
+  );
   const [selectedStatus, setSelectedStatus] = useState("all");
-  const [applications, setApplications] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
 
   useEffect(() => {
-    let isMounted = true;
-
-    const loadApplications = async ({ silent = false } = {}) => {
-      if (!silent) {
-        setIsLoading(true);
-      }
-      setError("");
-      try {
-        const response = await api.get("/applications/me");
-        const items = response?.data?.applications || [];
-        if (!isMounted) return;
-        setApplications(items.map(normalizeApplication));
-      } catch (loadError) {
-        if (!isMounted) return;
-        setError(loadError?.message || "Unable to load applications right now.");
-      } finally {
-        if (isMounted && !silent) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadApplications();
+    dispatch(fetchStudentApplications());
     const unsubscribe = onDataUpdated((event) => {
-      if (event?.resource === "applications" || event?.resource === "merit-lists") {
-        loadApplications({ silent: true });
+      if (
+        event?.resource === "applications" ||
+        event?.resource === "merit-lists"
+      ) {
+        dispatch(fetchStudentApplications());
       }
     });
     return () => {
-      isMounted = false;
       unsubscribe();
     };
-  }, []);
+  }, [dispatch]);
 
   const filteredApplications = useMemo(
     () =>
@@ -167,14 +130,14 @@ export function MyApplications() {
               key={application.id}
               application={application}
               onDeleteDraft={(applicationId) =>
-                setApplications((previous) =>
-                  previous.filter((item) => item.id !== applicationId),
-                )
+                dispatch(deleteDraftApplication(applicationId)).unwrap()
               }
             />
           ))}
         </div>
       ) : null}
+
+
     </div>
   );
 }
@@ -267,8 +230,7 @@ function ApplicationCard({ application, onDeleteDraft }) {
     setDraftError("");
     setIsDeleting(true);
     try {
-      await api.del(`/applications/${application.id}`);
-      onDeleteDraft?.(application.id);
+      await onDeleteDraft?.(application.id);
     } catch (error) {
       setDraftError(error?.message || "Unable to delete draft application.");
     } finally {
@@ -276,20 +238,25 @@ function ApplicationCard({ application, onDeleteDraft }) {
     }
   };
 
-  const downloadApplicationPdf = () => {
-    downloadPdfDocument({
-      title: "UAAMS Application Summary",
-      fileName: `${application.applicationCode || "application"}-summary.pdf`,
-      lines: [
-        `Application Code: ${application.applicationCode}`,
-        `University: ${application.university}`,
-        `Program: ${application.program}`,
-        `Applied Date: ${application.appliedDate}`,
-        `Last Updated: ${application.lastUpdate}`,
-        `Status: ${statusText}`,
-        `Payment Status: ${application.paymentStatus}`,
-      ],
-    });
+  const downloadApplicationPdf = async () => {
+    setDraftError("");
+    setIsDownloading(true);
+    try {
+      const blob = await api.getBlob(`/applications/${application.id}/template-pdf`);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${String(application.applicationCode || "application").toLowerCase()}-application.pdf`;
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (downloadError) {
+      setDraftError(downloadError?.message || "Unable to download filled application PDF.");
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   const downloadLinkedOrFallbackPdf = async ({ url, fileName, fallbackTitle, fallbackLines }) => {
@@ -398,10 +365,11 @@ function ApplicationCard({ application, onDeleteDraft }) {
         <button
           type="button"
           onClick={downloadApplicationPdf}
+          disabled={isDownloading}
           className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors flex items-center gap-2"
         >
           <Download className="w-4 h-4" />
-          Download Application
+          {isDownloading ? "Downloading..." : "Download Application"}
         </button>
         {["accepted", "assigned", "finalized"].includes(application.status) && application.rollNumberSlip ? (
           <button

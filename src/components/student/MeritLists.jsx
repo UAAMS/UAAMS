@@ -9,43 +9,10 @@ import {
   Search,
   XCircle,
 } from "lucide-react";
-import { api } from "../../lib/apiClient";
 import { downloadPdfDocument } from "../../lib/pdfDownload";
 import { onDataUpdated } from "../../lib/socketClient";
-
-const formatDate = (value) => {
-  if (!value) return "N/A";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "N/A";
-  return date.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-};
-
-const normalizeEntry = (entry) => ({
-  id: String(entry?.id || entry?._id || ""),
-  rollNumber: entry?.rollNumber || "N/A",
-  studentName: entry?.studentName || "Student",
-  program: entry?.program || "",
-  aggregate: Number(entry?.aggregate || 0),
-  status: entry?.status || "not-selected",
-  meritPosition: Number(entry?.meritPosition || 0),
-  isCurrentStudent: Boolean(entry?.isCurrentStudent),
-});
-
-const normalizeMeritList = (item) => ({
-  id: String(item?.id || item?._id || ""),
-  universityId: String(item?.universityId || ""),
-  university: item?.university || "University",
-  program: item?.program || "Program",
-  session: item?.session || "Session",
-  listNumber: Number(item?.listNumber || 1),
-  publishedDate: formatDate(item?.publishedDate),
-  totalSeats: Number(item?.totalSeats || 0),
-  entries: Array.isArray(item?.entries) ? item.entries.map(normalizeEntry) : [],
-});
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import { fetchStudentMeritLists } from "../../store/slices/meritListsSlice";
 
 const getMeritListPdf = (meritList) => {
   const lines = [
@@ -72,50 +39,28 @@ const getMeritListPdf = (meritList) => {
 };
 
 function MeritLists() {
+  const dispatch = useAppDispatch();
+  const {
+    items: meritLists,
+    loading: isLoading,
+    error,
+  } = useAppSelector((state) => state.meritLists);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedUniversity, setSelectedUniversity] = useState("all");
   const [selectedList, setSelectedList] = useState(null);
 
-  const [meritLists, setMeritLists] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
-
   useEffect(() => {
-    let isMounted = true;
-
-    const loadMeritLists = async ({ silent = false } = {}) => {
-      if (!silent) {
-        setIsLoading(true);
-      }
-      setError("");
-
-      try {
-        const response = await api.get("/students/me/merit-lists?limit=200");
-        const items = response?.data?.meritLists || [];
-        if (!isMounted) return;
-        setMeritLists(items.map(normalizeMeritList));
-      } catch (loadError) {
-        if (!isMounted) return;
-        setError(loadError?.message || "Unable to load merit lists.");
-      } finally {
-        if (isMounted && !silent) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadMeritLists();
+    dispatch(fetchStudentMeritLists());
     const unsubscribe = onDataUpdated((event) => {
       if (event?.resource === "merit-lists" || event?.resource === "applications") {
-        loadMeritLists({ silent: true });
+        dispatch(fetchStudentMeritLists());
       }
     });
 
     return () => {
-      isMounted = false;
       unsubscribe();
     };
-  }, []);
+  }, [dispatch]);
 
   const universities = useMemo(
     () => ["all", ...Array.from(new Set(meritLists.map((list) => list.university)))],

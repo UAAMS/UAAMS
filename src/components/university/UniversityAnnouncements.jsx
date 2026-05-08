@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Calendar, Edit, Paperclip, Plus, Trash2 } from "lucide-react";
-import { api } from "../../lib/apiClient";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import {
+  createUniversityAnnouncement,
+  deleteUniversityAnnouncement,
+  fetchUniversityAnnouncementsManagement,
+  updateUniversityAnnouncement,
+} from "../../store/slices/universityAnnouncementsManagementSlice";
 
 const initialFormState = {
   title: "",
@@ -24,23 +30,17 @@ const formatDate = (value) => {
   });
 };
 
-const normalizeAnnouncement = (item) => ({
-  id: String(item?._id || item?.id || ""),
-  title: item?.title || "",
-  content: item?.content || "",
-  type: item?.type || "general",
-  category: item?.category || "General",
-  attachmentUrl: item?.attachmentUrl || "",
-  attachmentName: item?.attachmentName || "",
-  status: item?.status || "draft",
-  publishedAt: item?.publishedAt || null,
-  createdAt: item?.createdAt || null,
-});
-
 function UniversityAnnouncements() {
-  const [announcements, setAnnouncements] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const dispatch = useAppDispatch();
+  const {
+    items: announcements,
+    loading: isLoading,
+    error: loadError,
+    saving: isSaving,
+    mutationError,
+    deletingIds,
+  } = useAppSelector((state) => state.universityAnnouncementsManagement);
+  const error = mutationError || loadError;
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -50,25 +50,10 @@ function UniversityAnnouncements() {
   const [editingId, setEditingId] = useState("");
   const [formData, setFormData] = useState(initialFormState);
   const [formError, setFormError] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-
-  const loadAnnouncements = async () => {
-    setIsLoading(true);
-    setError("");
-    try {
-      const response = await api.get("/universities/me/announcements?limit=200");
-      const items = response?.data?.announcements || [];
-      setAnnouncements(items.map(normalizeAnnouncement));
-    } catch (loadError) {
-      setError(loadError?.message || "Unable to load announcements.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   useEffect(() => {
-    loadAnnouncements();
-  }, []);
+    dispatch(fetchUniversityAnnouncementsManagement());
+  }, [dispatch]);
 
   const filteredAnnouncements = useMemo(() => {
     const search = searchTerm.trim().toLowerCase();
@@ -93,7 +78,7 @@ function UniversityAnnouncements() {
       published: announcements.filter((item) => item.status === "published").length,
       draft: announcements.filter((item) => item.status === "draft").length,
     }),
-    [announcements]
+    [announcements],
   );
 
   const openCreateForm = () => {
@@ -128,21 +113,26 @@ function UniversityAnnouncements() {
   const handleSave = async (event) => {
     event.preventDefault();
     setFormError("");
-    setIsSaving(true);
 
     try {
       if (editingId) {
-        await api.patch(`/universities/me/announcements/${editingId}`, formData);
+        await dispatch(
+          updateUniversityAnnouncement({
+            announcementId: editingId,
+            payload: formData,
+          }),
+        ).unwrap();
       } else {
-        await api.post("/universities/me/announcements", formData);
+        await dispatch(createUniversityAnnouncement(formData)).unwrap();
       }
 
       closeForm();
-      await loadAnnouncements();
     } catch (saveError) {
-      setFormError(saveError?.message || "Unable to save announcement.");
-    } finally {
-      setIsSaving(false);
+      const message =
+        typeof saveError === "string"
+          ? saveError
+          : saveError?.message || "Unable to save announcement.";
+      setFormError(message);
     }
   };
 
@@ -163,13 +153,14 @@ function UniversityAnnouncements() {
     }
   };
 
+  const isDeletingAnnouncement = (announcementId) => deletingIds.includes(String(announcementId));
+
   const handleDelete = async (announcementId) => {
     if (!window.confirm("Delete this announcement?")) return;
     try {
-      await api.del(`/universities/me/announcements/${announcementId}`);
-      setAnnouncements((previous) => previous.filter((item) => item.id !== announcementId));
-    } catch (deleteError) {
-      setError(deleteError?.message || "Unable to delete announcement.");
+      await dispatch(deleteUniversityAnnouncement(announcementId)).unwrap();
+    } catch {
+      // Errors are surfaced from Redux state.
     }
   };
 
@@ -304,7 +295,8 @@ function UniversityAnnouncements() {
                   <button
                     type="button"
                     onClick={() => handleDelete(announcement.id)}
-                    className="rounded-lg p-2 text-red-600 hover:bg-red-50"
+                    disabled={isDeletingAnnouncement(announcement.id)}
+                    className="rounded-lg p-2 text-red-600 hover:bg-red-50 disabled:opacity-60"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>

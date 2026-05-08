@@ -1,6 +1,17 @@
+import { lazy } from "react";
 import { Home, KeyRound } from "lucide-react";
-import { BloggerOverviewPage } from "../pages/blogger/BloggerOverviewPage";
-import { BloggerPasswordPage } from "../pages/blogger/BloggerPasswordPage";
+
+const lazyNamed = (loader, exportName) =>
+  lazy(() => loader().then((module) => ({ default: module[exportName] })));
+
+const BloggerOverviewPage = lazyNamed(
+  () => import("../pages/blogger/BloggerOverviewPage"),
+  "BloggerOverviewPage",
+);
+const BloggerPasswordPage = lazyNamed(
+  () => import("../pages/blogger/BloggerPasswordPage"),
+  "BloggerPasswordPage",
+);
 
 export const bloggerNavItems = [
   { to: "/blogger", label: "Overview", icon: Home, end: true },

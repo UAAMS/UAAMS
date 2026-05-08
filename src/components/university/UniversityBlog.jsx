@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Edit, Eye, Plus, Trash2 } from "lucide-react";
-import { api } from "../../lib/apiClient";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import {
+  createUniversityBlogPost,
+  deleteUniversityBlogPost,
+  fetchUniversityBlogPostsManagement,
+  updateUniversityBlogPost,
+} from "../../store/slices/universityBlogManagementSlice";
 
 const initialFormState = {
   title: "",
@@ -24,25 +30,17 @@ const formatDate = (value) => {
   });
 };
 
-const normalizePost = (item) => ({
-  id: String(item?._id || item?.id || ""),
-  title: item?.title || "",
-  excerpt: item?.excerpt || "",
-  content: item?.content || "",
-  category: item?.category || "General",
-  tags: Array.isArray(item?.tags) ? item.tags : [],
-  imageUrl: item?.imageUrl || "",
-  status: item?.status || "draft",
-  views: Number(item?.views || 0),
-  publishedAt: item?.publishedAt || null,
-  createdAt: item?.createdAt || null,
-  updatedAt: item?.updatedAt || null,
-});
-
 function UniversityBlog() {
-  const [posts, setPosts] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const dispatch = useAppDispatch();
+  const {
+    items: posts,
+    loading: isLoading,
+    error: loadError,
+    saving: isSaving,
+    mutationError,
+    deletingIds,
+  } = useAppSelector((state) => state.universityBlogManagement);
+  const error = mutationError || loadError;
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -53,27 +51,12 @@ function UniversityBlog() {
   const [formData, setFormData] = useState(initialFormState);
   const [imageFileName, setImageFileName] = useState("");
   const [formError, setFormError] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
 
   const [previewPost, setPreviewPost] = useState(null);
 
-  const loadPosts = async () => {
-    setIsLoading(true);
-    setError("");
-    try {
-      const response = await api.get("/universities/me/blogs?limit=200");
-      const items = response?.data?.posts || [];
-      setPosts(items.map(normalizePost));
-    } catch (loadError) {
-      setError(loadError?.message || "Unable to load blog posts.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   useEffect(() => {
-    loadPosts();
-  }, []);
+    dispatch(fetchUniversityBlogPostsManagement());
+  }, [dispatch]);
 
   const categories = useMemo(() => {
     const unique = new Set(posts.map((item) => item.category).filter(Boolean));
@@ -164,35 +147,36 @@ function UniversityBlog() {
     status: formData.status,
   });
 
+  const isDeletingPost = (postId) => deletingIds.includes(String(postId));
+
   const handleSave = async (event) => {
     event.preventDefault();
     setFormError("");
-    setIsSaving(true);
 
     try {
       const payload = buildPayload();
       if (editingId) {
-        await api.patch(`/universities/me/blogs/${editingId}`, payload);
+        await dispatch(updateUniversityBlogPost({ postId: editingId, payload })).unwrap();
       } else {
-        await api.post("/universities/me/blogs", payload);
+        await dispatch(createUniversityBlogPost(payload)).unwrap();
       }
 
       closeForm();
-      await loadPosts();
     } catch (saveError) {
-      setFormError(saveError?.message || "Unable to save blog post.");
-    } finally {
-      setIsSaving(false);
+      const message =
+        typeof saveError === "string"
+          ? saveError
+          : saveError?.message || "Unable to save blog post.";
+      setFormError(message);
     }
   };
 
   const handleDelete = async (postId) => {
     if (!window.confirm("Delete this blog post?")) return;
     try {
-      await api.del(`/universities/me/blogs/${postId}`);
-      setPosts((previous) => previous.filter((item) => item.id !== postId));
-    } catch (deleteError) {
-      setError(deleteError?.message || "Unable to delete blog post.");
+      await dispatch(deleteUniversityBlogPost(postId)).unwrap();
+    } catch {
+      // Errors are surfaced from Redux state.
     }
   };
 
@@ -365,7 +349,8 @@ function UniversityBlog() {
                   <button
                     type="button"
                     onClick={() => handleDelete(post.id)}
-                    className="rounded-lg p-2 text-red-600 hover:bg-red-50"
+                    disabled={isDeletingPost(post.id)}
+                    className="rounded-lg p-2 text-red-600 hover:bg-red-50 disabled:opacity-60"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>

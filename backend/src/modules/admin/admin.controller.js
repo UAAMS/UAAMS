@@ -10,6 +10,7 @@ const ApiError = require("../../utils/ApiError");
 const asyncHandler = require("../../utils/asyncHandler");
 const getPagination = require("../../utils/pagination");
 const { emitDataUpdate } = require("../../utils/socket");
+const { invalidateUniversityPublicCache } = require("../../controllers/university.controller");
 const {
   ROLES,
   UNIVERSITY_APPROVAL,
@@ -28,6 +29,18 @@ const ensureObjectId = (id, message = "Invalid resource id.") => {
     throw new ApiError(400, message);
   }
 };
+
+const ADMIN_APPLICATION_SUMMARY_PROJECTION = [
+  "applicationCode",
+  "student",
+  "studentName",
+  "program",
+  "aggregate",
+  "status",
+  "university",
+  "createdAt",
+  "updatedAt",
+].join(" ");
 
 const getAdminDashboard = asyncHandler(async (_req, res) => {
   const [
@@ -82,6 +95,7 @@ const getAdminDashboard = asyncHandler(async (_req, res) => {
       .limit(5)
       .lean(),
     Application.find({})
+      .select(ADMIN_APPLICATION_SUMMARY_PROJECTION)
       .sort({ createdAt: -1 })
       .limit(5)
       .populate("university", "name")
@@ -145,6 +159,7 @@ const listAdminActivities = asyncHandler(async (req, res) => {
       .limit(50)
       .lean(),
     Application.find({})
+      .select(ADMIN_APPLICATION_SUMMARY_PROJECTION)
       .sort({ createdAt: -1 })
       .limit(50)
       .populate("university", "name")
@@ -584,6 +599,9 @@ const deleteManagedUser = asyncHandler(async (req, res) => {
         ],
       }),
     ]);
+  }
+  if (targetUser.role === ROLES.UNIVERSITY) {
+    invalidateUniversityPublicCache(targetUser._id);
   }
 
   emitDataUpdate({
