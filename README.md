@@ -1,5 +1,5 @@
 
-  # University Admission Management System (Copy)
+  # University Admission Management System
 
   This is a code bundle for University Admission Management System.
   
