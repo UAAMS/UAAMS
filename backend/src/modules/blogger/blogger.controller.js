@@ -14,6 +14,24 @@ const ensureObjectId = (id, message = "Invalid resource id.") => {
   }
 };
 
+const deleteCommentThread = async (commentId) => {
+  const queue = [commentId];
+  const allIds = [];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift();
+    allIds.push(currentId);
+
+    const children = await BlogComment.find({ parentComment: currentId })
+      .select("_id")
+      .lean();
+
+    children.forEach((child) => queue.push(String(child._id)));
+  }
+
+  await BlogComment.deleteMany({ _id: { $in: allIds } });
+};
+
 const normalizeSearchRegex = (search) => ({
   $regex: String(search || "").trim(),
   $options: "i",
@@ -502,6 +520,117 @@ const deleteMyPost = asyncHandler(async (req, res) => {
   });
 });
 
+const getMyPostComments = asyncHandler(async (req, res) => {
+  ensureObjectId(req.params.postId, "Invalid blog id.");
+
+  const post = await BlogPost.findOne({
+    _id: req.params.postId,
+    author: req.user._id,
+  });
+
+  if (!post) {
+    throw new ApiError(404, "Blog post not found.");
+  }
+
+  const comments = await BlogComment.find({ post: req.params.postId })
+    .sort({ createdAt: 1 })
+    .populate("student", "name")
+    .populate("parentComment", "content")
+    .lean();
+
+  const nestedComments = buildCommentThread(comments, req.user._id);
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      comments: nestedComments,
+      post: {
+        id: post._id,
+        title: post.title,
+        status: post.status,
+      },
+    },
+  });
+});
+
+const deleteMyPostComment = asyncHandler(async (req, res) => {
+  ensureObjectId(req.params.postId, "Invalid blog id.");
+  ensureObjectId(req.params.commentId, "Invalid comment id.");
+
+  const post = await BlogPost.findOne({
+    _id: req.params.postId,
+    author: req.user._id,
+  });
+
+  if (!post) {
+    throw new ApiError(404, "Blog post not found.");
+  }
+
+  const comment = await BlogComment.findOne({
+    _id: req.params.commentId,
+    post: req.params.postId,
+  });
+
+  if (!comment) {
+    throw new ApiError(404, "Comment not found.");
+  }
+
+  await deleteCommentThread(req.params.commentId);
+
+  emitDataUpdate({
+    resource: "blog-interactions",
+    action: "deleted",
+    roles: ["student", "blogger", "university"],
+    userIds: [String(post.author || ""), String(post.university || "")].filter(Boolean),
+    payload: {
+      postId: String(post._id),
+      commentId: String(req.params.commentId),
+    },
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "Comment deleted successfully.",
+  });
+});
+
+const buildCommentThread = (comments, currentUserId) => {
+  const commentMap = new Map();
+  const rootComments = [];
+
+  comments.forEach((comment) => {
+    const normalized = {
+      id: comment._id,
+      content: comment.content,
+      createdAt: comment.createdAt,
+      updatedAt: comment.updatedAt,
+      likesCount: Array.isArray(comment.likes) ? comment.likes.length : 0,
+      likedByMe: Array.isArray(comment.likes)
+        ? comment.likes.some((item) => String(item) === String(currentUserId))
+        : false,
+      student: comment.student,
+      replies: [],
+    };
+
+    commentMap.set(String(comment._id), normalized);
+
+    const parentId = comment.parentComment?
+      (typeof comment.parentComment === "object" ? String(comment.parentComment._id) : String(comment.parentComment))
+      : null;
+
+    if (parentId) {
+      const parent = commentMap.get(parentId);
+      if (parent) {
+        parent.replies.push(normalized);
+      }
+    } else {
+      rootComments.push(normalized);
+    }
+  });
+
+  return rootComments;
+};
+
 module.exports = {
   getMyProfile,
   updateMyProfile,
@@ -511,4 +640,6 @@ module.exports = {
   createMyPost,
   updateMyPost,
   deleteMyPost,
+  getMyPostComments,
+  deleteMyPostComment,
 };

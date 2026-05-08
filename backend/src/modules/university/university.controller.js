@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Application = require("../../models/Application");
 const Announcement = require("../../models/Announcement");
 const BlogPost = require("../../models/BlogPost");
+const BlogComment = require("../../models/BlogComment");
 const UniversityProfile = require("../../models/UniversityProfile");
 const User = require("../../models/User");
 const ApiError = require("../../utils/ApiError");
@@ -33,6 +34,24 @@ const ensureObjectId = (id, message = "Invalid resource id.") => {
   if (!mongoose.isValidObjectId(id)) {
     throw new ApiError(400, message);
   }
+};
+
+const deleteCommentThread = async (commentId) => {
+  const queue = [commentId];
+  const allIds = [];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift();
+    allIds.push(currentId);
+
+    const children = await BlogComment.find({ parentComment: currentId })
+      .select("_id")
+      .lean();
+
+    children.forEach((child) => queue.push(String(child._id)));
+  }
+
+  await BlogComment.deleteMany({ _id: { $in: allIds } });
 };
 
 const normalizeSearchRegex = (search) => ({
@@ -565,10 +584,58 @@ const listMyBlogs = asyncHandler(async (req, res) => {
       .lean(),
   ]);
 
+  const postIds = posts.map((item) => item?._id).filter(Boolean);
+  let commentStatsByPostId = new Map();
+
+  if (postIds.length > 0) {
+    const commentStats = await BlogComment.aggregate([
+      { $match: { post: { $in: postIds } } },
+      {
+        $group: {
+          _id: "$post",
+          commentsCount: {
+            $sum: {
+              $cond: [{ $eq: ["$parentComment", null] }, 1, 0],
+            },
+          },
+          repliesCount: {
+            $sum: {
+              $cond: [{ $ne: ["$parentComment", null] }, 1, 0],
+            },
+          },
+        },
+      },
+    ]);
+
+    commentStatsByPostId = new Map(
+      commentStats.map((item) => [
+        String(item._id),
+        {
+          commentsCount: Number(item.commentsCount || 0),
+          repliesCount: Number(item.repliesCount || 0),
+        },
+      ]),
+    );
+  }
+
+  const normalizedPosts = posts.map((post) => {
+    const stats = commentStatsByPostId.get(String(post?._id || "")) || {
+      commentsCount: 0,
+      repliesCount: 0,
+    };
+
+    return {
+      ...post,
+      likesCount: Array.isArray(post?.likes) ? post.likes.length : 0,
+      commentsCount: stats.commentsCount,
+      repliesCount: stats.repliesCount,
+    };
+  });
+
   return res.status(200).json({
     success: true,
     data: {
-      posts,
+      posts: normalizedPosts,
       pagination: {
         page,
         limit,
@@ -725,6 +792,117 @@ const deleteMyBlog = asyncHandler(async (req, res) => {
     message: "Blog post deleted successfully.",
   });
 });
+
+const getMyBlogComments = asyncHandler(async (req, res) => {
+  ensureObjectId(req.params.blogId, "Invalid blog id.");
+
+  const post = await BlogPost.findOne({
+    _id: req.params.blogId,
+    university: req.user._id,
+  });
+
+  if (!post) {
+    throw new ApiError(404, "Blog post not found.");
+  }
+
+  const comments = await BlogComment.find({ post: req.params.blogId })
+    .sort({ createdAt: 1 })
+    .populate("student", "name")
+    .populate("parentComment", "content")
+    .lean();
+
+  const nestedComments = buildCommentThread(comments, req.user._id);
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      comments: nestedComments,
+      post: {
+        id: post._id,
+        title: post.title,
+        status: post.status,
+      },
+    },
+  });
+});
+
+const deleteMyBlogComment = asyncHandler(async (req, res) => {
+  ensureObjectId(req.params.blogId, "Invalid blog id.");
+  ensureObjectId(req.params.commentId, "Invalid comment id.");
+
+  const post = await BlogPost.findOne({
+    _id: req.params.blogId,
+    university: req.user._id,
+  });
+
+  if (!post) {
+    throw new ApiError(404, "Blog post not found.");
+  }
+
+  const comment = await BlogComment.findOne({
+    _id: req.params.commentId,
+    post: req.params.blogId,
+  });
+
+  if (!comment) {
+    throw new ApiError(404, "Comment not found.");
+  }
+
+  await deleteCommentThread(req.params.commentId);
+
+  emitDataUpdate({
+    resource: "blog-interactions",
+    action: "deleted",
+    roles: ["student", "blogger", "university"],
+    userIds: [String(post.author || ""), String(post.university || "")].filter(Boolean),
+    payload: {
+      postId: String(post._id),
+      commentId: String(req.params.commentId),
+    },
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "Comment deleted successfully.",
+  });
+});
+
+const buildCommentThread = (comments, currentUserId) => {
+  const commentMap = new Map();
+  const rootComments = [];
+
+  comments.forEach((comment) => {
+    const normalized = {
+      id: comment._id,
+      content: comment.content,
+      createdAt: comment.createdAt,
+      updatedAt: comment.updatedAt,
+      likesCount: Array.isArray(comment.likes) ? comment.likes.length : 0,
+      likedByMe: Array.isArray(comment.likes)
+        ? comment.likes.some((item) => String(item) === String(currentUserId))
+        : false,
+      student: comment.student,
+      replies: [],
+    };
+
+    commentMap.set(String(comment._id), normalized);
+
+    const parentId = comment.parentComment?
+      (typeof comment.parentComment === "object" ? String(comment.parentComment._id) : String(comment.parentComment))
+      : null;
+
+    if (parentId) {
+      const parent = commentMap.get(parentId);
+      if (parent) {
+        parent.replies.push(normalized);
+      }
+    } else {
+      rootComments.push(normalized);
+    }
+  });
+
+  return rootComments;
+};
 
 const listMyRollNumbers = asyncHandler(async (req, res) => {
   const { page, limit, skip } = getPagination(req.query);
@@ -1041,6 +1219,8 @@ module.exports = {
   createMyBlog,
   updateMyBlog,
   deleteMyBlog,
+  getMyBlogComments,
+  deleteMyBlogComment,
   listMyRollNumbers,
   upsertMyRollNumber,
   listMyAdmissionLetters,
