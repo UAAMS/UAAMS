@@ -92,19 +92,16 @@ export function PaymentSettings() {
       );
 
     try {
-      await dispatch(
-        updateUniversitySettings({
-          ...storedSettings,
-          paymentMethods: cleanedMethods,
-        }),
-      ).unwrap();
+      const payload = { ...storedSettings, paymentMethods: cleanedMethods };
+      delete payload.universityName;
+      await dispatch(updateUniversitySettings(payload)).unwrap();
     } catch {}
   };
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="mb-2 text-slate-900">Payment Details</h1>
+        <h1 className="text-slate-900 mb-2">Payment Details</h1>
         <p className="text-slate-600">
           Add the bank or wallet details students should use before uploading payment proof.
         </p>
