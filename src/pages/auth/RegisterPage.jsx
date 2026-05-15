@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { Building2, LockKeyhole, Mail, Phone, UserRound } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { AuthSplitShell, authInputClass } from "../../components/shared/AuthSplitShell";
 import { PasswordField } from "../../components/shared/PasswordField";
 import { useAuth } from "../../context/AuthContext";
 import { roleLabelMap } from "../../utils/rolePaths";
@@ -85,160 +87,156 @@ export const RegisterPage = () => {
   };
 
   return (
-    <div className="mx-auto flex min-h-[80vh] w-full max-w-5xl items-center px-4 py-10 sm:px-6 lg:px-8">
-      <section className="w-full rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-        <h1 className="text-2xl text-slate-900">{roleLabelMap[role]} Registration</h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Create your {roleLabelMap[role].toLowerCase()} portal account.
+    <AuthSplitShell
+      eyebrow="Create account"
+      title={`${roleLabelMap[role]} Registration`}
+      subtitle={`Create your UAAMS ${roleLabelMap[role].toLowerCase()} portal account.`}
+      panelSize="wide"
+      footer={
+        <p>
+          Already have an account?{" "}
+          <Link to={`/login/${role}`} className="font-semibold text-emerald-700 hover:text-emerald-800">
+            Sign in
+          </Link>
         </p>
-
+      }
+    >
+      <div>
         {!isSelfRegistrationAllowed ? (
-          <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
             {role === "blogger"
               ? "Blogger accounts are created by university representatives from their dashboard."
               : "Admin registration is restricted and managed by system owner."}
             <div className="mt-3">
-              <Link to={`/login/${role}`} className="text-amber-900 underline">
+              <Link to={`/login/${role}`} className="font-semibold text-amber-900 underline">
                 Go to {roleLabelMap[role]} Login
               </Link>
             </div>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-sm text-slate-700">
-                  {isUniversity ? "University Name" : "Full Name"}
-                </label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(event) => updateField("name", event.target.value)}
-                  placeholder={isUniversity ? "Enter university name" : "Enter your full name"}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  required
-                />
-              </div>
+              <AuthField
+                icon={isUniversity ? <Building2 className="h-4 w-4" /> : <UserRound className="h-4 w-4" />}
+                label={isUniversity ? "University Name" : "Full Name"}
+                value={formData.name}
+                onChange={(value) => updateField("name", value)}
+                placeholder={isUniversity ? "Enter university name" : "Enter your full name"}
+                required
+              />
 
-              <div>
-                <label className="mb-2 block text-sm text-slate-700">Email</label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(event) => updateField("email", event.target.value)}
-                  placeholder="your.email@example.com"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  required
-                />
-              </div>
+              <AuthField
+                icon={<Mail className="h-4 w-4" />}
+                label="Email"
+                type="email"
+                value={formData.email}
+                onChange={(value) => updateField("email", value)}
+                placeholder="your.email@example.com"
+                required
+              />
             </div>
 
             {isUniversity ? (
               <>
+                <SectionLabel>University Representative</SectionLabel>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-sm text-slate-700">Representative Name</label>
-                    <input
-                      type="text"
-                      value={formData.representativeName}
-                      onChange={(event) => updateField("representativeName", event.target.value)}
-                      placeholder="Enter representative's full name"
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm text-slate-700">Phone</label>
-                    <input
-                      type="text"
-                      value={formData.phone}
-                      onChange={(event) => updateField("phone", event.target.value)}
-                      placeholder="+92-300-1234567"
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm text-slate-700">Location</label>
-                    <input
-                      type="text"
-                      value={formData.location}
-                      onChange={(event) => updateField("location", event.target.value)}
-                      placeholder="City, Province"
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      required
-                    />
-                  </div>
+                  <AuthField
+                    icon={<UserRound className="h-4 w-4" />}
+                    label="Representative Name"
+                    value={formData.representativeName}
+                    onChange={(value) => updateField("representativeName", value)}
+                    placeholder="Enter representative's full name"
+                    required
+                  />
+                  <AuthField
+                    icon={<Phone className="h-4 w-4" />}
+                    label="Phone"
+                    value={formData.phone}
+                    onChange={(value) => updateField("phone", value)}
+                    placeholder="+92-300-1234567"
+                    required
+                  />
+                  <AuthField
+                    icon={<Building2 className="h-4 w-4" />}
+                    label="Location"
+                    value={formData.location}
+                    onChange={(value) => updateField("location", value)}
+                    placeholder="City, Province"
+                    required
+                  />
                 </div>
 
+                <SectionLabel>University Profile</SectionLabel>
                 <div className="grid gap-4 md:grid-cols-3">
-                  <div>
-                    <label className="mb-2 block text-sm text-slate-700">Website</label>
-                    <input
-                      placeholder="http://www.myUniversity.com"
-                      type="url"
-                      value={formData.website}
-                      onChange={(event) => updateField("website", event.target.value)}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm text-slate-700">Established Year</label>
-                    <input
-                      type="number"
-                      value={formData.establishedYear}
-                      onChange={(event) => updateField("establishedYear", event.target.value)}
-                      placeholder="e.g., 1990"
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm text-slate-700">Students</label>
-                    <input
-                      type="number"
-                      value={formData.studentCount}
-                      onChange={(event) => updateField("studentCount", event.target.value)}
-                      placeholder="e.g., 5000"
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      required
-                    />
-                  </div>
+                  <AuthField
+                    label="Website"
+                    type="url"
+                    value={formData.website}
+                    onChange={(value) => updateField("website", value)}
+                    placeholder="https://www.university.edu"
+                  />
+                  <AuthField
+                    label="Established Year"
+                    type="number"
+                    value={formData.establishedYear}
+                    onChange={(value) => updateField("establishedYear", value)}
+                    placeholder="e.g., 1990"
+                    required
+                  />
+                  <AuthField
+                    label="Students"
+                    type="number"
+                    value={formData.studentCount}
+                    onChange={(value) => updateField("studentCount", value)}
+                    placeholder="e.g., 5000"
+                    required
+                  />
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm text-slate-700">Programs Offered</label>
+                  <label className="mb-1 block text-xs font-semibold uppercase text-emerald-700">
+                    Programs Offered
+                  </label>
                   <textarea
                     rows={3}
                     value={formData.programsOffered}
                     onChange={(event) => updateField("programsOffered", event.target.value)}
                     placeholder="List programs offered"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className={`${authInputClass} min-h-24 resize-y rounded-none`}
                     required
                   />
                 </div>
               </>
             ) : null}
 
+            <SectionLabel>Security</SectionLabel>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label className="mb-2 block text-sm text-slate-700">Password</label>
+                <label className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase text-emerald-700">
+                  <LockKeyhole className="h-4 w-4" />
+                  Password
+                </label>
                 <PasswordField
                   value={formData.password}
                   onChange={(event) => updateField("password", event.target.value)}
                   placeholder="Create a strong password"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className={authInputClass}
+                  toggleClassName="text-emerald-600 hover:text-emerald-700"
                   required
                   autoComplete="new-password"
                 />
               </div>
               <div>
-                <label className="mb-2 block text-sm text-slate-700">Confirm Password</label>
+                <label className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase text-emerald-700">
+                  <LockKeyhole className="h-4 w-4" />
+                  Confirm Password
+                </label>
                 <PasswordField
                   value={formData.confirmPassword}
                   onChange={(event) => updateField("confirmPassword", event.target.value)}
                   placeholder="Re-enter your password"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className={authInputClass}
+                  toggleClassName="text-emerald-600 hover:text-emerald-700"
                   required
                   autoComplete="new-password"
                 />
@@ -246,30 +244,62 @@ export const RegisterPage = () => {
             </div>
 
             {error ? (
-              <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+              <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {error}
+              </p>
             ) : null}
 
             {message ? (
-              <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">{message}</p>
+              <p className="rounded-lg border border-emerald-200 bg-emerald-100 px-3 py-2 text-sm text-emerald-700">
+                {message}
+              </p>
             ) : null}
 
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-white transition-colors hover:bg-emerald-700"
+              className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-bold uppercase text-white transition-colors hover:bg-emerald-700 disabled:opacity-70"
             >
               {isSubmitting ? "Creating Account..." : "Create Account"}
             </button>
           </form>
         )}
-
-        <p className="mt-4 text-sm text-slate-600">
-          Already have an account?{" "}
-          <Link to={`/login/${role}`} className="text-emerald-700 hover:text-emerald-800">
-            Sign in
-          </Link>
-        </p>
-      </section>
-    </div>
+      </div>
+    </AuthSplitShell>
   );
 };
+
+function AuthField({
+  icon = null,
+  label,
+  type = "text",
+  value,
+  onChange,
+  placeholder,
+  required = false,
+}) {
+  return (
+    <div>
+      <label className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase text-emerald-700">
+        {icon}
+        {label}
+      </label>
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className={authInputClass}
+        required={required}
+      />
+    </div>
+  );
+}
+
+function SectionLabel({ children }) {
+  return (
+    <div className="border-t border-emerald-100 pt-5">
+      <p className="text-xs font-semibold uppercase text-emerald-700">{children}</p>
+    </div>
+  );
+}

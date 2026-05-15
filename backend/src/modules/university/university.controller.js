@@ -3,6 +3,7 @@ const Application = require("../../models/Application");
 const Announcement = require("../../models/Announcement");
 const BlogPost = require("../../models/BlogPost");
 const BlogComment = require("../../models/BlogComment");
+const RecommendationSnapshot = require("../../models/RecommendationSnapshot");
 const UniversityProfile = require("../../models/UniversityProfile");
 const User = require("../../models/User");
 const ApiError = require("../../utils/ApiError");
@@ -11,6 +12,7 @@ const getPagination = require("../../utils/pagination");
 const { emitDataUpdate } = require("../../utils/socket");
 const { persistMaybeDataUrl } = require("../../utils/fileStorage");
 const { normalizePaymentMethods } = require("../../utils/paymentMethods");
+const { deleteCache } = require("../../utils/cacheClient");
 const {
   sendRollNumberAssignedEmail,
   sendAdmissionLetterIssuedEmail,
@@ -29,6 +31,8 @@ const {
   deleteMyBlogger,
   invalidateUniversityPublicCache,
 } = require("../../controllers/university.controller");
+
+const UNIVERSITY_RECOMMENDATION_DATASET_CACHE_KEY = "recommendations:universities:dataset:v1";
 
 const ensureObjectId = (id, message = "Invalid resource id.") => {
   if (!mongoose.isValidObjectId(id)) {
@@ -73,6 +77,11 @@ const normalizeProgramDeadlineDate = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return date;
+};
+
+const invalidateStudentRecommendationCache = async () => {
+  deleteCache(UNIVERSITY_RECOMMENDATION_DATASET_CACHE_KEY);
+  await RecommendationSnapshot.deleteMany({});
 };
 
 const sanitizeProfilePayload = (payload = {}) => {
@@ -290,6 +299,8 @@ const updateMySettings = asyncHandler(async (req, res) => {
   ].some((field) => Object.prototype.hasOwnProperty.call(payload, field));
 
   if (shouldBroadcastRecommendations) {
+    await invalidateStudentRecommendationCache();
+
     emitDataUpdate({
       resource: "programs",
       action: "updated",
@@ -357,6 +368,7 @@ const updateMyPrograms = asyncHandler(async (req, res) => {
     { new: true, upsert: true, runValidators: true }
   );
   invalidateUniversityPublicCache(req.user._id);
+  await invalidateStudentRecommendationCache();
 
   emitDataUpdate({
     resource: "programs",

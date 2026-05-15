@@ -1,10 +1,12 @@
 const mongoose = require("mongoose");
 const BlogPost = require("../models/BlogPost");
+const BlogComment = require("../models/BlogComment");
 const User = require("../models/User");
 const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
 const getPagination = require("../utils/pagination");
 const { persistMaybeDataUrl } = require("../utils/fileStorage");
+const { emitDataUpdate } = require("../utils/socket");
 const { ROLES } = require("../constants/roles");
 
 const ensureObjectId = (id, message = "Invalid resource id.") => {
@@ -20,6 +22,31 @@ const calculateReadTime = (content) => {
     .filter(Boolean).length;
   const minutes = Math.max(1, Math.ceil(words / 200));
   return `${minutes} min`;
+};
+
+const canManagePostComments = (post, user) => {
+  if (!post || !user) return false;
+  if (user.role === ROLES.ADMIN) return true;
+  if (String(post.author || "") === String(user._id)) return true;
+  return user.role === ROLES.UNIVERSITY && String(post.university || "") === String(user._id);
+};
+
+const deleteCommentThread = async (commentId) => {
+  const queue = [commentId];
+  const allIds = [];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift();
+    allIds.push(currentId);
+
+    const children = await BlogComment.find({ parentComment: currentId })
+      .select("_id")
+      .lean();
+
+    children.forEach((child) => queue.push(String(child._id)));
+  }
+
+  await BlogComment.deleteMany({ _id: { $in: allIds } });
 };
 
 const listBlogPosts = asyncHandler(async (req, res) => {
@@ -240,10 +267,52 @@ const deleteBlogPost = asyncHandler(async (req, res) => {
   });
 });
 
+const deleteBlogComment = asyncHandler(async (req, res) => {
+  ensureObjectId(req.params.id, "Invalid blog id.");
+  ensureObjectId(req.params.commentId, "Invalid comment id.");
+
+  const post = await BlogPost.findById(req.params.id);
+  if (!post) {
+    throw new ApiError(404, "Blog post not found.");
+  }
+
+  if (!canManagePostComments(post, req.user)) {
+    throw new ApiError(403, "You do not have permission to delete comments on this blog post.");
+  }
+
+  const comment = await BlogComment.findOne({
+    _id: req.params.commentId,
+    post: req.params.id,
+  });
+
+  if (!comment) {
+    throw new ApiError(404, "Comment not found.");
+  }
+
+  await deleteCommentThread(req.params.commentId);
+
+  emitDataUpdate({
+    resource: "blog-interactions",
+    action: "deleted",
+    roles: ["student", "blogger", "university"],
+    userIds: [String(post.author || ""), String(post.university || "")].filter(Boolean),
+    payload: {
+      postId: String(post._id),
+      commentId: String(req.params.commentId),
+    },
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "Comment deleted successfully.",
+  });
+});
+
 module.exports = {
   listBlogPosts,
   getBlogPostById,
   createBlogPost,
   updateBlogPost,
   deleteBlogPost,
+  deleteBlogComment,
 };
