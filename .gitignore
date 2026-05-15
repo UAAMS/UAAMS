@@ -1,4 +1,5 @@
 node_modules
+build/
 backend/uploads/*
 !backend/uploads/system/
 backend/uploads/system/*
