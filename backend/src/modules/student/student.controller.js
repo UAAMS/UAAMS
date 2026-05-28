@@ -5,6 +5,7 @@ const BlogPost = require("../../models/BlogPost");
 const BlogComment = require("../../models/BlogComment");
 const User = require("../../models/User");
 const StudentProfile = require("../../models/StudentProfile");
+const UniversityProfile = require("../../models/UniversityProfile");
 
 const asyncHandler = require("../../utils/asyncHandler");
 const getPagination = require("../../utils/pagination");
@@ -29,6 +30,31 @@ const normalizeSearchRegex = (search) => ({
   $regex: String(search || "").trim(),
   $options: "i",
 });
+
+const applyPublishedVisibilityWindow = (query) => {
+  const now = new Date();
+  query.status = "published";
+  query.$and = [
+    {
+      $or: [{ visibleFrom: null }, { visibleFrom: { $lte: now } }],
+    },
+    {
+      $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }],
+    },
+  ];
+  return query;
+};
+
+const getUniversityProfileMap = async (universityIds = []) => {
+  const ids = Array.from(new Set(universityIds.map((id) => String(id || "")).filter(Boolean)));
+  if (ids.length === 0) return new Map();
+
+  const profiles = await UniversityProfile.find({ university: { $in: ids } })
+    .select("university universityName logo representativeName representativeProfilePicture")
+    .lean();
+
+  return new Map(profiles.map((profile) => [String(profile.university), profile]));
+};
 
 const MERIT_LIST_PROJECTION = [
   "applicationCode",
@@ -113,7 +139,7 @@ const buildCommentThread = (comments, currentUserId) => {
 
 const listMyAnnouncements = asyncHandler(async (req, res) => {
   const { page, limit, skip } = getPagination(req.query);
-  const query = { status: "published" };
+  const query = applyPublishedVisibilityWindow({});
 
   if (req.query.type) {
     query.type = String(req.query.type);
@@ -141,11 +167,22 @@ const listMyAnnouncements = asyncHandler(async (req, res) => {
       .populate("university", "name")
       .lean(),
   ]);
+  const universityProfileMap = await getUniversityProfileMap(
+    announcements.map((announcement) => announcement?.university?._id || announcement?.university),
+  );
+  const enrichedAnnouncements = announcements.map((announcement) => {
+    const universityId = String(announcement?.university?._id || announcement?.university || "");
+    const profile = universityProfileMap.get(universityId);
+    return {
+      ...announcement,
+      universityProfile: profile || null,
+    };
+  });
 
   return res.status(200).json({
     success: true,
     data: {
-      announcements,
+      announcements: enrichedAnnouncements,
       pagination: {
         page,
         limit,
@@ -158,7 +195,7 @@ const listMyAnnouncements = asyncHandler(async (req, res) => {
 
 const listMyMeritLists = asyncHandler(async (req, res) => {
   const { page, limit, skip } = getPagination(req.query);
-  const meritStatuses = ["accepted", "assigned", "finalized", "rejected"];
+  const meritStatuses = ["accepted", "assigned", "finalized"];
   const query = { status: { $in: meritStatuses } };
 
   if (req.query.universityId) {
@@ -175,6 +212,9 @@ const listMyMeritLists = asyncHandler(async (req, res) => {
     .sort({ updatedAt: -1, createdAt: -1 })
     .populate("university", "name")
     .lean();
+  const universityProfileMap = await getUniversityProfileMap(
+    applications.map((application) => application?.university?._id || application?.university),
+  );
 
   const grouped = new Map();
   const currentStudentId = String(req.user._id);
@@ -182,7 +222,8 @@ const listMyMeritLists = asyncHandler(async (req, res) => {
   applications.forEach((application) => {
     const university = application.university || {};
     const universityId = String(university._id || university.id || application.university || "");
-    const universityName = university.name || "University";
+    const universityProfile = universityProfileMap.get(universityId);
+    const universityName = universityProfile?.universityName || university.name || "University";
     const listNumber = Number(application.meritListNumber || 1);
     const key = `${universityId}::${application.program}::${listNumber}`;
 
@@ -192,6 +233,9 @@ const listMyMeritLists = asyncHandler(async (req, res) => {
         id: key,
         universityId,
         university: universityName,
+        universityLogo: universityProfile?.logo || "",
+        representativeName: universityProfile?.representativeName || "",
+        representativeProfilePicture: universityProfile?.representativeProfilePicture || "",
         program: application.program,
         session: `Fall ${year}`,
         listNumber,
@@ -292,10 +336,13 @@ const listMyBlogs = asyncHandler(async (req, res) => {
       .sort({ publishedAt: -1, createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate("author", "name")
+      .populate("author", "name role profilePicture")
       .populate("university", "name")
       .lean(),
   ]);
+  const universityProfileMap = await getUniversityProfileMap(
+    posts.map((post) => post?.university?._id || post?.university),
+  );
 
   const postIds = posts.map((post) => post?._id).filter(Boolean);
   let commentStatsByPostId = new Map();
@@ -340,6 +387,8 @@ const listMyBlogs = asyncHandler(async (req, res) => {
 
     return {
       ...post,
+      universityProfile:
+        universityProfileMap.get(String(post?.university?._id || post?.university || "")) || null,
       likesCount: likes.length,
       likedByMe: likes.some((item) => String(item) === String(req.user._id)),
       commentsCount: stats.commentsCount,

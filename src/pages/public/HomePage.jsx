@@ -36,32 +36,18 @@ export const HomePage = () => {
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
       <section className="rounded-3xl border border-emerald-100 bg-white p-8 shadow-sm lg:p-12">
-        <p className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs text-emerald-700">
-          Final Year Project
-        </p>
-        <h1 className="mt-4 max-w-3xl text-4xl text-slate-900">
+        <div className="inline-flex w-fit items-center gap-3 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold uppercase text-emerald-700">
+          <GraduationCap className="h-4 w-4" />
+          UAAMS Portal
+        </div>
+        <h1 className="mt-4 max-w-3xl text-3xl font-semibold leading-tight text-slate-900 sm:text-4xl lg:text-5xl">
           University Admission Management System with Role-Based Workflows
         </h1>
-        <p className="mt-4 max-w-3xl text-base text-slate-600">
+        <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
           A modern multi-role React frontend built with JSX, React Router, protected routing,
           and dashboard-first UX for students, universities, bloggers, and admins.
         </p>
 
-        <div className="mt-8 flex flex-wrap gap-3 items-center">
-          <Link
-            to="/register/student"
-            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-3 text-white transition-colors hover:bg-emerald-700"
-          >
-            <p>Start Registration</p>
-            <ArrowRight className="h-4 w-5" />
-          </Link>
-          <Link
-            to="/login/student"
-            className="rounded-lg border border-slate-300 bg-white px-6 py-3 text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            <p>Sign In</p>
-          </Link>
-        </div>
       </section>
 
       <section className="mt-8 grid gap-4 md:grid-cols-2">
@@ -73,17 +59,15 @@ export const HomePage = () => {
               key={roleCard.title}
               className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
             >
-              <div className={`mb-4 inline-flex rounded-lg p-3 ${roleCard.color}`}>
-                <Icon className="h-5 w-5" />
-              </div>
-              <h2 className="text-xl text-slate-900">{roleCard.title}</h2>
-              <p className="mt-2 text-sm text-slate-600">{roleCard.description}</p>
-              <Link
+            <Link
                 to={roleCard.to}
-                className="mt-4 inline-flex items-center gap-1 text-sm text-slate-900 hover:text-emerald-700"
+                className="block h-full rounded-lg transition-shadow"
               >
-                Open portal
-                <ArrowRight className="h-4 w-4" />
+              <div className={`mb-4 inline-flex rounded-lg p-3 gap-4 ${roleCard.color}`}>
+                <Icon className="h-5 w-5" />
+              <h2 className={`text-sm font-semibold ${roleCard.color}`}>{roleCard.title}</h2>
+              </div>
+              <p className="mt-2 text-sm text-slate-600">{roleCard.description}</p>
               </Link>
             </article>
           );

@@ -8,6 +8,7 @@ const asyncHandler = require("../utils/asyncHandler");
 const getPagination = require("../utils/pagination");
 const { getCache, setCache, invalidateCachePrefix } = require("../utils/cacheClient");
 const { sendBloggerCredentialsEmail } = require("../utils/mailer");
+const { isStrongPassword, isValidEmail, isValidName, isValidPhone } = require("../utils/validators");
 const { emitDataUpdate } = require("../utils/socket");
 const { persistMaybeDataUrl } = require("../utils/fileStorage");
 const { getSystemApplicationTemplate, SYSTEM_TEMPLATE_ID } = require("../config/systemApplicationTemplate");
@@ -16,6 +17,14 @@ const {
   UNIVERSITY_APPROVAL,
   USER_STATUS,
 } = require("../constants/roles");
+
+const hasDeadlinePassed = (value) => {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  date.setHours(23, 59, 59, 999);
+  return date.getTime() < Date.now();
+};
 
 const defaultApplicationFields = [
   {
@@ -169,7 +178,7 @@ const listUniversities = asyncHandler(async (req, res) => {
   const profiles = await UniversityProfile.find({
     university: { $in: universityIds },
   })
-    .select("university universityName type city email website applicationFee programs")
+    .select("university universityName type city email website applicationFee programs logo")
     .lean();
   const profileMap = new Map(profiles.map((item) => [String(item.university), item]));
 
@@ -183,6 +192,7 @@ const listUniversities = asyncHandler(async (req, res) => {
         location: profile?.city || uni.location || "Pakistan",
         email: profile?.email || uni.email,
         website: profile?.website || uni.website || "",
+        logo: profile?.logo || "",
         applicationFee: Number(profile?.applicationFee || 0),
         programs: Array.isArray(profile?.programs)
           ? profile.programs.map((program) => ({
@@ -192,7 +202,8 @@ const listUniversities = asyncHandler(async (req, res) => {
               feeRange: program.feeRange,
               requiredAggregate: program.requiredAggregate,
               deadlineDate: program.deadlineDate || null,
-              isAdmissionOpen: program.isAdmissionOpen !== false,
+              isAdmissionOpen:
+                program.isAdmissionOpen !== false && !hasDeadlinePassed(program.deadlineDate),
             }))
           : [],
       };
@@ -250,6 +261,11 @@ const getUniversityById = asyncHandler(async (req, res) => {
         "applicationFee",
         "applicationStartDate",
         "applicationEndDate",
+        "logo",
+        "representativeName",
+        "representativeProfilePicture",
+        "phone",
+        "address",
         "programs",
       ].join(" ")
     )
@@ -265,13 +281,19 @@ const getUniversityById = asyncHandler(async (req, res) => {
         type: profile?.type || "public",
         city: profile?.city || user.location || "",
         website: profile?.website || user.website || "",
+        logo: profile?.logo || "",
+        representativeName: profile?.representativeName || "",
+        representativeProfilePicture: profile?.representativeProfilePicture || "",
+        phone: profile?.phone || "",
+        address: profile?.address || "",
         applicationFee: Number(profile?.applicationFee || 0),
         applicationStartDate: profile?.applicationStartDate || null,
         applicationEndDate: profile?.applicationEndDate || null,
         programs: Array.isArray(profile?.programs)
           ? profile.programs.map((program) => ({
               ...program,
-              isAdmissionOpen: program?.isAdmissionOpen !== false,
+              isAdmissionOpen:
+                program?.isAdmissionOpen !== false && !hasDeadlinePassed(program?.deadlineDate),
             }))
           : [],
         profile,
@@ -363,10 +385,24 @@ const updateMyProfile = asyncHandler(async (req, res) => {
       preferredName: payload.shortName || payload.universityName || "university-logo",
     });
   }
+  if (Object.prototype.hasOwnProperty.call(payload, "representativeProfilePicture")) {
+    payload.representativeProfilePicture = await persistMaybeDataUrl({
+      value: payload.representativeProfilePicture,
+      folder: `university-profiles/${String(req.user._id)}`,
+      preferredName: payload.representativeName || "representative-profile",
+    });
+  }
+
+  const setOnInsert = {
+    university: req.user._id,
+  };
+  if (!Object.prototype.hasOwnProperty.call(payload, "universityName")) {
+    setOnInsert.universityName = req.user.name;
+  }
 
   const profile = await UniversityProfile.findOneAndUpdate(
     { university: req.user._id },
-    { $set: payload, $setOnInsert: { university: req.user._id, universityName: req.user.name } },
+    { $set: payload, $setOnInsert: setOnInsert },
     { new: true, upsert: true, runValidators: true }
   );
 
@@ -470,9 +506,32 @@ const createBlogger = asyncHandler(async (req, res) => {
   }
 
   const normalizedEmail = String(email).trim().toLowerCase();
+  if (!isValidName(name)) {
+    throw new ApiError(400, "Enter a valid blogger name.");
+  }
+
+  if (!isValidEmail(normalizedEmail)) {
+    throw new ApiError(400, "Enter a valid blogger email address.");
+  }
+
+  if (phone && !isValidPhone(phone)) {
+    throw new ApiError(400, "Enter a valid blogger mobile number.");
+  }
+
+  if (!isStrongPassword(password)) {
+    throw new ApiError(
+      400,
+      "Password must be at least 8 characters and include uppercase, lowercase, number, and special character.",
+    );
+  }
+
   const normalizedUsername = username
     ? String(username).trim().toLowerCase()
     : `blogger_${String(name).trim().toLowerCase().replace(/\s+/g, "_")}`;
+
+  if (!/^[a-z][a-z0-9._-]{2,29}$/.test(normalizedUsername)) {
+    throw new ApiError(400, "Username must start with a letter and use 3-30 valid characters.");
+  }
 
   const existing = await User.findOne({
     $or: [{ email: normalizedEmail }, { username: normalizedUsername }],
@@ -490,6 +549,7 @@ const createBlogger = asyncHandler(async (req, res) => {
     role: ROLES.BLOGGER,
     managedUniversity: req.user._id,
     phone: phone ? String(phone).trim() : "",
+    emailVerified: true,
     approvalStatus: UNIVERSITY_APPROVAL.APPROVED,
     status: USER_STATUS.ACTIVE,
   });

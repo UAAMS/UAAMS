@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { getFileNameFromPath, readFileAsDataUrl } from "../../lib/fileDataUrl";
+import { isPdfFile } from "../../lib/validation";
 import { onDataUpdated } from "../../lib/socketClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
@@ -12,7 +13,6 @@ const initialFormState = {
   letterNumber: "",
   fileUrl: "",
   fileName: "",
-  remarks: "",
   sentToStudent: false,
 };
 
@@ -99,14 +99,17 @@ function AdmissionLetterManagement() {
   );
 
   const openUploadForm = (application) => {
+    const nextLetterNumber = `UAAMS-AL-${String(
+      applications.filter((item) => item.admissionLetter.issued).length + 1,
+    ).padStart(4, "0")}`;
     setSelectedApplicationId(application.id);
     setFormData({
-      letterNumber: application.admissionLetter.letterNumber || "",
+      letterNumber:
+        application.admissionLetter.letterNumber || nextLetterNumber,
       fileUrl: application.admissionLetter.fileUrl || "",
       fileName:
         application.admissionLetter.fileName ||
         getFileNameFromPath(application.admissionLetter.fileUrl),
-      remarks: application.admissionLetter.remarks || "",
       sentToStudent: application.admissionLetter.sentToStudent || false,
     });
     setFormError("");
@@ -125,6 +128,16 @@ function AdmissionLetterManagement() {
     if (!selectedApplicationId) return;
 
     setFormError("");
+
+    if (!formData.letterNumber.trim()) {
+      setFormError("Letter number is required.");
+      return;
+    }
+
+    if (!formData.fileUrl.trim()) {
+      setFormError("Upload a PDF admission letter before saving.");
+      return;
+    }
 
     try {
       await dispatch(
@@ -147,6 +160,11 @@ function AdmissionLetterManagement() {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    if (!isPdfFile(file)) {
+      setFormError("Admission letter must be uploaded as a PDF file.");
+      return;
+    }
+
     try {
       const dataUrl = await readFileAsDataUrl(file);
       setFormData((previous) => ({
@@ -163,11 +181,11 @@ function AdmissionLetterManagement() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-slate-900 mb-2">Admission Letter Management</h1>
-        <p className="text-slate-600">Upload and manage admission letters for selected students.</p>
+        <h1 className="uaams-page-title">Admission Letter Management</h1>
+        <p className="uaams-page-description">Upload and manage PDF admission letters for selected students.</p>
       </div>
 
-      <div className="grid md:grid-cols-4 gap-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total Records" value={stats.total} />
         <StatCard label="Letters Issued" value={stats.issued} />
         <StatCard label="Pending" value={stats.pending} />
@@ -229,8 +247,8 @@ function AdmissionLetterManagement() {
         <div className="space-y-4">
           {filteredApplications.map((application) => (
             <article key={application.id} className="rounded-lg border border-slate-200 bg-white p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
                   <h3 className="text-slate-900">{application.studentName}</h3>
                   <p className="text-sm text-slate-600">{application.email}</p>
                   <p className="text-xs text-slate-500 mt-1">
@@ -255,16 +273,6 @@ function AdmissionLetterManagement() {
                   <p className="text-xs text-slate-500 mt-1">
                     Letter: {application.admissionLetter.letterNumber || "Not issued"}
                   </p>
-                  {application.admissionLetter.fileUrl ? (
-                    <a
-                      href={application.admissionLetter.fileUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-2 inline-flex text-xs text-blue-600 hover:text-blue-700"
-                    >
-                      Open Letter
-                    </a>
-                  ) : null}
                   {application.admissionLetter.fileName ? (
                     <p className="mt-1 text-xs text-slate-500">
                       File: {application.admissionLetter.fileName}
@@ -277,7 +285,17 @@ function AdmissionLetterManagement() {
                   ) : null}
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {application.admissionLetter.fileUrl ? (
+                    <a
+                      href={application.admissionLetter.fileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex rounded-lg border border-blue-200 px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                    >
+                      Open Letter
+                    </a>
+                  ) : null}
                   <span
                     className={`rounded-full px-2 py-1 text-xs ${
                       application.admissionLetter.issued
@@ -308,7 +326,7 @@ function AdmissionLetterManagement() {
       ) : null}
 
       {showForm && selectedApplication ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="uaams-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-xl rounded-xl bg-white p-6">
             <h2 className="text-slate-900 mb-2">Issue Admission Letter</h2>
             <p className="text-sm text-slate-600 mb-4">
@@ -333,10 +351,10 @@ function AdmissionLetterManagement() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm text-slate-700">Upload Admission Letter (PDF/Image)</label>
+                <label className="mb-1 block text-sm text-slate-700">Upload Admission Letter (PDF only)</label>
                 <input
                   type="file"
-                  accept=".pdf,.png,.jpg,.jpeg"
+                  accept=".pdf"
                   onChange={handleLetterFileChange}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
@@ -346,21 +364,6 @@ function AdmissionLetterManagement() {
                 {!formData.fileName && formData.fileUrl ? (
                   <p className="mt-1 text-xs text-slate-500">Existing file attached.</p>
                 ) : null}
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm text-slate-700">Remarks</label>
-                <textarea
-                  value={formData.remarks}
-                  onChange={(event) =>
-                    setFormData((previous) => ({
-                      ...previous,
-                      remarks: event.target.value,
-                    }))
-                  }
-                  rows={3}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
               </div>
 
               <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -384,7 +387,7 @@ function AdmissionLetterManagement() {
                 </p>
               ) : null}
 
-              <div className="flex justify-end gap-3 border-t border-slate-200 pt-4">
+              <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
                 <button
                   type="button"
                   onClick={closeUploadForm}

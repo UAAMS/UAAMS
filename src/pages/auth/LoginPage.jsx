@@ -80,7 +80,7 @@ export const LoginPage = () => {
         )
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6">
         <div>
           <label className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase text-emerald-700">
             {role === "blogger" ? <UserRound className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
@@ -112,7 +112,7 @@ export const LoginPage = () => {
           />
         </div>
 
-        <div className="flex items-center justify-between gap-3 text-sm">
+        <div className="flex flex-col gap-3 text-sm sm:flex-row sm:items-center sm:justify-between">
           <label className="inline-flex items-center gap-2 text-slate-600">
             <input
               type="checkbox"
@@ -122,7 +122,10 @@ export const LoginPage = () => {
             />
             Remember me
           </label>
-          <Link to="/forgot-password" className="text-emerald-700 hover:text-emerald-800">
+          <Link
+            to={`/forgot-password?role=${encodeURIComponent(role)}`}
+            className="w-fit text-emerald-700 hover:text-emerald-800"
+          >
             Forgot password?
           </Link>
         </div>

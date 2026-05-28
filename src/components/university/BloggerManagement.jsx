@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PasswordField } from "../shared/PasswordField";
+import { isStrongPassword, isValidEmail, isValidName, isValidPhone } from "../../lib/validation";
 import { onDataUpdated } from "../../lib/socketClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
@@ -54,6 +56,7 @@ function BloggerManagement() {
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState(initialFormState);
   const [formError, setFormError] = useState("");
+  const [pendingAction, setPendingAction] = useState(null);
 
   useEffect(() => {
     dispatch(fetchUniversityBloggers());
@@ -111,6 +114,33 @@ function BloggerManagement() {
     dispatch(clearUniversityBloggersMessages());
     setFormError("");
 
+    if (!isValidName(formData.name)) {
+      setFormError("Enter a valid blogger name.");
+      return;
+    }
+
+    if (!isValidEmail(formData.email)) {
+      setFormError("Enter a valid email address.");
+      return;
+    }
+
+    if (formData.phone.trim() && !isValidPhone(formData.phone)) {
+      setFormError("Enter a valid Pakistani mobile number.");
+      return;
+    }
+
+    if (formData.username.trim() && !/^[A-Za-z][A-Za-z0-9._-]{2,29}$/.test(formData.username.trim())) {
+      setFormError("Username must start with a letter and use 3-30 letters, numbers, dots, underscores, or hyphens.");
+      return;
+    }
+
+    if (!isStrongPassword(formData.password)) {
+      setFormError(
+        "Password must be at least 8 characters and include uppercase, lowercase, number, and special character.",
+      );
+      return;
+    }
+
     try {
       const payload = {
         name: formData.name,
@@ -129,7 +159,8 @@ function BloggerManagement() {
     }
   };
 
-  const handleToggleStatus = async (blogger) => {
+  const handleToggleStatus = async (blogger = pendingAction?.blogger) => {
+    if (!blogger) return;
     const nextStatus = blogger.status === "active" ? "inactive" : "active";
     try {
       await dispatch(
@@ -138,19 +169,17 @@ function BloggerManagement() {
           status: nextStatus,
         }),
       ).unwrap();
+      setPendingAction(null);
     } catch {
       // Errors are surfaced from Redux state.
     }
   };
 
-  const handleDeleteBlogger = async (blogger) => {
-    const shouldDelete = window.confirm(
-      `Delete blogger account for ${blogger.name}? This action cannot be undone.`,
-    );
-    if (!shouldDelete) return;
-
+  const handleDeleteBlogger = async (blogger = pendingAction?.blogger) => {
+    if (!blogger) return;
     try {
       await dispatch(deleteUniversityBlogger(blogger.id)).unwrap();
+      setPendingAction(null);
     } catch {
       // Errors are surfaced from Redux state.
     }
@@ -161,10 +190,10 @@ function BloggerManagement() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-slate-900 mb-2">Blogger Management</h1>
-          <p className="text-slate-600">Create and manage bloggers for your university.</p>
+          <h1 className="uaams-page-title">Blogger Management</h1>
+          <p className="uaams-page-description">Create and manage bloggers for your university.</p>
         </div>
         <button
           type="button"
@@ -176,7 +205,7 @@ function BloggerManagement() {
         </button>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-4">
+      <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Total" count={stats.total} />
         <StatCard label="Active" count={stats.active} />
         <StatCard label="Inactive" count={stats.inactive} />
@@ -230,8 +259,8 @@ function BloggerManagement() {
         <div className="space-y-4">
           {filteredBloggers.map((blogger) => (
             <article key={blogger.id} className="rounded-lg border border-slate-200 bg-white p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
                   <h3 className="text-slate-900">{blogger.name}</h3>
                   <p className="text-sm text-slate-600">{blogger.email}</p>
                   <p className="text-xs text-slate-500 mt-1">
@@ -253,7 +282,7 @@ function BloggerManagement() {
                   </span>
                   <button
                     type="button"
-                    onClick={() => handleToggleStatus(blogger)}
+                    onClick={() => setPendingAction({ type: "status", blogger })}
                     disabled={isStatusMutating(blogger.id) || isDeleting(blogger.id)}
                     className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                   >
@@ -265,7 +294,7 @@ function BloggerManagement() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleDeleteBlogger(blogger)}
+                    onClick={() => setPendingAction({ type: "delete", blogger })}
                     disabled={isDeleting(blogger.id) || isStatusMutating(blogger.id)}
                     className="rounded-lg border border-red-200 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 inline-flex items-center gap-1 disabled:opacity-60"
                   >
@@ -280,7 +309,7 @@ function BloggerManagement() {
       ) : null}
 
       {showForm ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="uaams-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-xl rounded-xl bg-white p-6">
             <h2 className="text-slate-900 mb-4">Add Blogger</h2>
 
@@ -366,7 +395,7 @@ function BloggerManagement() {
                 </p>
               ) : null}
 
-              <div className="flex justify-end gap-3 border-t border-slate-200 pt-4">
+              <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
                 <button
                   type="button"
                   onClick={closeCreateForm}
@@ -388,7 +417,7 @@ function BloggerManagement() {
       ) : null}
 
       {credentials ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="uaams-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-lg rounded-xl bg-white p-6">
             <h3 className="text-slate-900 mb-2">Blogger Credentials</h3>
             <p className="text-sm text-slate-600 mb-4">
@@ -422,6 +451,28 @@ function BloggerManagement() {
           </div>
         </div>
       ) : null}
+      <ConfirmDialog
+        open={Boolean(pendingAction)}
+        title={pendingAction?.type === "delete" ? "Delete blogger?" : "Change blogger status?"}
+        description={
+          pendingAction?.type === "delete"
+            ? `Delete blogger account for ${pendingAction?.blogger?.name || "this user"}?`
+            : `Set ${pendingAction?.blogger?.name || "this blogger"} to ${
+                pendingAction?.blogger?.status === "active" ? "inactive" : "active"
+              }.`
+        }
+        confirmLabel={pendingAction?.type === "delete" ? "Delete Blogger" : "Update Status"}
+        tone={pendingAction?.type === "delete" ? "danger" : "success"}
+        isLoading={
+          pendingAction?.type === "delete"
+            ? isDeleting(pendingAction?.blogger?.id)
+            : isStatusMutating(pendingAction?.blogger?.id)
+        }
+        onConfirm={() =>
+          pendingAction?.type === "delete" ? handleDeleteBlogger() : handleToggleStatus()
+        }
+        onCancel={() => setPendingAction(null)}
+      />
     </div>
   );
 }

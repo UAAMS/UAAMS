@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, CreditCard, Upload } from "lucide-react";
+import { ArrowLeft, CheckCircle2, CreditCard, School, Upload } from "lucide-react";
+import { ConfirmDialog } from "../../components/shared/ConfirmDialog";
 import { DashboardPageShell } from "../shared/DashboardPageShell";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
+import { isSupportedDocumentFile, isValidTransactionReference } from "../../lib/validation";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { fetchStudentApplications } from "../../store/slices/applicationsSlice";
 import {
@@ -16,6 +18,14 @@ const resolveUniversityName = (university) => {
   if (typeof university === "string") return "University";
   return university.name || "University";
 };
+
+const resolveApplicationUniversityName = (application) =>
+  application?.universityProfile?.universityName || resolveUniversityName(application?.university);
+
+const resolveApplicationUniversityLogo = (application) =>
+  application?.universityProfile?.logo ||
+  application?.universityLogo ||
+  "";
 
 export const StudentApplicationPaymentPage = () => {
   const dispatch = useAppDispatch();
@@ -38,6 +48,7 @@ export const StudentApplicationPaymentPage = () => {
   });
   const [errors, setErrors] = useState({});
   const [apiError, setApiError] = useState("");
+  const [isConfirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
     dispatch(fetchPaymentApplication(applicationId));
@@ -104,6 +115,14 @@ export const StudentApplicationPaymentPage = () => {
 
   const handleProofChange = async (file) => {
     if (!file) return;
+    if (!isSupportedDocumentFile(file)) {
+      setErrors((previous) => ({
+        ...previous,
+        paymentProof: "Payment proof must be a PDF, JPG, or PNG file.",
+      }));
+      return;
+    }
+
     try {
       const dataUrl = await readFileAsDataUrl(file);
       handleChange("paymentProof", dataUrl);
@@ -119,8 +138,16 @@ export const StudentApplicationPaymentPage = () => {
 
     const nextErrors = {};
 
-    if (!paymentData.transactionReference.trim()) {
-      nextErrors.transactionReference = "Transaction reference is required.";
+    if (!isValidTransactionReference(paymentData.transactionReference)) {
+      nextErrors.transactionReference =
+        "Enter a valid transaction reference (6-64 letters, numbers, dots, dashes, slashes, or underscores).";
+    }
+
+    if (
+      paymentData.accountNumber.trim() &&
+      !/^[A-Za-z0-9 +._/-]{4,40}$/.test(paymentData.accountNumber.trim())
+    ) {
+      nextErrors.accountNumber = "Enter a valid sender account or wallet number.";
     }
 
     if (!paymentData.paymentProof.trim()) {
@@ -131,6 +158,12 @@ export const StudentApplicationPaymentPage = () => {
       setErrors(nextErrors);
       return;
     }
+
+    setConfirmOpen(true);
+  };
+
+  const submitConfirmedPayment = async () => {
+    setConfirmOpen(false);
 
     if (!application?._id) {
       setApiError("Application draft not found.");
@@ -191,7 +224,7 @@ export const StudentApplicationPaymentPage = () => {
   return (
     <DashboardPageShell
       title="Application Payment"
-      subtitle={`${resolveUniversityName(application.university)} - ${application.program || "Program"}`}
+      subtitle={`${resolveApplicationUniversityName(application)} - ${application.program || "Program"}`}
       actions={
         <button
           onClick={() =>
@@ -208,13 +241,14 @@ export const StudentApplicationPaymentPage = () => {
         </button>
       }
     >
+      <UniversityPaymentHeader application={application} />
       <form
         onSubmit={handlePayAndSubmit}
-        className="space-y-5 rounded-xl border border-slate-200 bg-white p-6"
+        className="space-y-5 rounded-xl border border-slate-200 bg-white p-4 sm:p-6"
       >
-        <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-          <p className="font-medium">Application Fee</p>
-          <p className="mt-1 text-lg">
+        <div className="rounded-lg bg-emerald-50 px-4 py-4 text-base text-emerald-800">
+          <p className="font-semibold">Application Fee</p>
+          <p className="mt-1 text-2xl font-semibold sm:text-3xl">
             PKR {Number(application?.payment?.amount || 0).toLocaleString()}
           </p>
         </div>
@@ -303,16 +337,17 @@ export const StudentApplicationPaymentPage = () => {
               </div>
             ) : null}
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-slate-700 hover:bg-slate-50">
-              <Upload className="h-4 w-4" />
+              <Upload className="h-5 w-5 shrink-0" />
               Upload Screenshot
               <input
                 type="file"
-                accept="image/*,.pdf"
+                accept=".pdf,.jpg,.jpeg,.png"
                 disabled={isAlreadyPaid}
                 onChange={(event) => handleProofChange(event.target.files?.[0])}
                 className="hidden"
               />
             </label>
+            <p className="mt-2 text-xs text-slate-500">Upload a PDF, JPG, or PNG receipt.</p>
           </div>
           {errors.paymentProof ? (
             <p className="mt-1 text-xs text-red-600">{errors.paymentProof}</p>
@@ -341,9 +376,44 @@ export const StudentApplicationPaymentPage = () => {
           </button>
         </div>
       </form>
+      <ConfirmDialog
+        open={isConfirmOpen}
+        title="Submit payment?"
+        description="This will submit your payment proof and move the application from draft to submitted."
+        confirmLabel="Submit Payment"
+        tone="success"
+        isLoading={isProcessing}
+        onConfirm={submitConfirmedPayment}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </DashboardPageShell>
   );
 };
+
+function UniversityPaymentHeader({ application }) {
+  const logoUrl = resolveApplicationUniversityLogo(application);
+  const universityName = resolveApplicationUniversityName(application);
+
+  return (
+    <section className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center">
+      <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-emerald-100">
+        {logoUrl ? (
+          <img
+            src={logoUrl}
+            alt={`${universityName} logo`}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <School className="h-8 w-8 text-emerald-600" />
+        )}
+      </div>
+      <div>
+        <h2 className="text-lg font-semibold text-slate-900">{universityName}</h2>
+        <p className="text-sm text-slate-600">{application?.program || "Program"}</p>
+      </div>
+    </section>
+  );
+}
 
 function PaymentMethodCard({ method }) {
   const details = [

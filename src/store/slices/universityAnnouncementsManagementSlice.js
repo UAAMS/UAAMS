@@ -10,6 +10,8 @@ const normalizeAnnouncement = (item) => ({
   attachmentUrl: item?.attachmentUrl || "",
   attachmentName: item?.attachmentName || "",
   status: item?.status || "draft",
+  visibleFrom: item?.visibleFrom || "",
+  expiresAt: item?.expiresAt || "",
   publishedAt: item?.publishedAt || null,
   createdAt: item?.createdAt || null,
   updatedAt: item?.updatedAt || null,

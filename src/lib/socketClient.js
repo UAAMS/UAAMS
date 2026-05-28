@@ -8,6 +8,23 @@ let activeToken = "";
 
 const resolveSocketBaseUrl = () => API_BASE_URL.replace(/\/api\/?$/, "");
 
+const attachSocketDebugListeners = (socket) => {
+  socket.on("connect", () => {
+    // eslint-disable-next-line no-console
+    console.debug("[socket] connected", socket.id);
+  });
+
+  socket.on("disconnect", (reason) => {
+    // eslint-disable-next-line no-console
+    console.debug("[socket] disconnected", reason);
+  });
+
+  socket.on("connect_error", (error) => {
+    // eslint-disable-next-line no-console
+    console.error("[socket] connect_error", error?.message || error);
+  });
+};
+
 const ensureSocket = () => {
   const token = getStoredToken();
   if (!token) return null;
@@ -32,6 +49,7 @@ const ensureSocket = () => {
     },
   });
 
+  attachSocketDebugListeners(socketInstance);
   return socketInstance;
 };
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search, Download, Eye, CheckCircle, XCircle, Clock } from "lucide-react";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { onDataUpdated } from "../../lib/socketClient";
 import { api } from "../../lib/apiClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
@@ -27,6 +28,7 @@ const normalizeApplication = (item) => ({
   interMarks: Number(item?.interMarks || 0),
   testScore: Number(item?.testScore || 0),
   appliedDate: formatDate(item?.appliedAt || item?.createdAt),
+  appliedAt: item?.appliedAt || item?.createdAt || "",
   status: item?.status || "pending",
   cnic: item?.cnic || "",
 });
@@ -52,6 +54,8 @@ function ManageApplications() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("all");
   const [selectedProgram, setSelectedProgram] = useState("all");
+  const [selectedDate, setSelectedDate] = useState("");
+  const [sortBy, setSortBy] = useState("date-desc");
   const [selectedApplication, setSelectedApplication] = useState(null);
   const [downloadError, setDownloadError] = useState("");
   const [downloadingId, setDownloadingId] = useState("");
@@ -101,18 +105,30 @@ function ManageApplications() {
   };
 
   const filteredApplications = useMemo(() => {
-    return applications.filter((app) => {
-      const search = searchTerm.trim().toLowerCase();
-      const matchesSearch =
-        !search ||
-        app.studentName.toLowerCase().includes(search) ||
-        app.email.toLowerCase().includes(search) ||
-        app.code.toLowerCase().includes(search);
-      const matchesStatus = selectedStatus === "all" || app.status === selectedStatus;
-      const matchesProgram = selectedProgram === "all" || app.program === selectedProgram;
-      return matchesSearch && matchesStatus && matchesProgram;
+    const filtered = applications.filter((app) => {
+        const search = searchTerm.trim().toLowerCase();
+        const matchesSearch =
+          !search ||
+          app.studentName.toLowerCase().includes(search) ||
+          app.email.toLowerCase().includes(search) ||
+          app.code.toLowerCase().includes(search);
+        const matchesStatus = selectedStatus === "all" || app.status === selectedStatus;
+        const matchesProgram = selectedProgram === "all" || app.program === selectedProgram;
+        const matchesDate =
+          !selectedDate ||
+          (app.appliedAt && new Date(app.appliedAt).toISOString().slice(0, 10) === selectedDate);
+        return matchesSearch && matchesStatus && matchesProgram && matchesDate;
+      });
+
+    return [...filtered].sort((first, second) => {
+      if (sortBy === "name-asc") return first.studentName.localeCompare(second.studentName);
+      if (sortBy === "name-desc") return second.studentName.localeCompare(first.studentName);
+
+      const firstDate = new Date(first.appliedAt || 0).getTime();
+      const secondDate = new Date(second.appliedAt || 0).getTime();
+      return sortBy === "date-asc" ? firstDate - secondDate : secondDate - firstDate;
     });
-  }, [applications, searchTerm, selectedStatus, selectedProgram]);
+  }, [applications, searchTerm, selectedStatus, selectedProgram, selectedDate, sortBy]);
 
   const programs = useMemo(
     () => Array.from(new Set(applications.map((app) => app.program))).sort((a, b) => a.localeCompare(b)),
@@ -133,12 +149,12 @@ function ManageApplications() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-slate-900 mb-2">Manage Applications</h1>
-        <p className="text-slate-600">Review and process student applications</p>
+        <h1 className="uaams-page-title">Manage Applications</h1>
+        <p className="uaams-page-description">Review and process student applications</p>
       </div>
 
-      <div className="bg-white rounded-lg border border-slate-200 p-6">
-        <div className="grid md:grid-cols-4 gap-4">
+      <div className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6">
+        <div className="grid gap-4 md:grid-cols-6">
           <div className="md:col-span-2">
             <label className="block text-slate-700 mb-2 text-sm">Search Applications</label>
             <div className="relative">
@@ -147,7 +163,7 @@ function ManageApplications() {
                 type="text"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search by name, email, or application code..."
+                placeholder="Search name, email, code"
                 className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -184,6 +200,28 @@ function ManageApplications() {
               ))}
             </select>
           </div>
+          <div>
+            <label className="mb-2 block text-sm text-slate-700">Applied Date</label>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(event) => setSelectedDate(event.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="mb-2 block text-sm text-slate-700">Sort</label>
+            <select
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="date-desc">Newest First</option>
+              <option value="date-asc">Oldest First</option>
+              <option value="name-asc">Name A-Z</option>
+              <option value="name-desc">Name Z-A</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -204,7 +242,7 @@ function ManageApplications() {
 
       {!isInitialLoading && !error ? (
         <>
-          <div className="grid md:grid-cols-4 gap-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Total" count={applications.length} color="bg-blue-50 text-blue-600" />
             <StatCard
               label="Pending"
@@ -344,11 +382,14 @@ function ApplicationDetailModal({ application, onClose, onStatusSave }) {
   const [status, setStatus] = useState(application.status);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+  const [isConfirmOpen, setConfirmOpen] = useState(false);
 
   const availableNextStatuses = nextStatusOptionsByCurrent[application.status] || [];
+  const canUpdateStatus = availableNextStatuses.length > 0;
 
   const handleStatusChange = async () => {
     setError("");
+    setConfirmOpen(false);
     setIsSaving(true);
     try {
       await onStatusSave(status);
@@ -365,7 +406,7 @@ function ApplicationDetailModal({ application, onClose, onStatusSave }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div className="uaams-modal-backdrop fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-slate-200 p-6">
           <div className="flex justify-between items-start">
@@ -404,47 +445,69 @@ function ApplicationDetailModal({ application, onClose, onStatusSave }) {
           <div>
             <h3 className="text-slate-900 mb-3">Application Status</h3>
             <div className="bg-slate-50 p-4 rounded-lg">
-              <div className="mb-4">
-                <label className="block text-slate-700 mb-2 text-sm">Update Status</label>
-                <select
-                  value={status}
-                  onChange={(event) => setStatus(event.target.value)}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value={application.status}>
-                    {application.status
-                      .split("-")
-                      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-                      .join(" ")} (Current)
-                  </option>
-                  {availableNextStatuses.map((nextStatus) => (
-                    <option key={nextStatus} value={nextStatus}>
-                      {nextStatus
+              {canUpdateStatus ? (
+                <div className="mb-4">
+                  <label className="block text-slate-700 mb-2 text-sm">Update Status</label>
+                  <select
+                    value={status}
+                    onChange={(event) => setStatus(event.target.value)}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value={application.status}>
+                      {application.status
                         .split("-")
                         .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-                        .join(" ")}
+                        .join(" ")} (Current)
                     </option>
-                  ))}
-                </select>
-              </div>
+                    {availableNextStatuses.map((nextStatus) => (
+                      <option key={nextStatus} value={nextStatus}>
+                        {nextStatus
+                          .split("-")
+                          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                          .join(" ")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <p className="mb-4 rounded-lg bg-white px-3 py-2 text-sm text-slate-600">
+                  This application is {application.status.replace("-", " ")}. No further status
+                  updates are available.
+                </p>
+              )}
 
               {error ? (
                 <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
               ) : null}
 
+              {canUpdateStatus ? (
               <div className="flex gap-3">
                 <button
-                  onClick={handleStatusChange}
+                  onClick={() => setConfirmOpen(true)}
                   disabled={isSaving || status === application.status}
                   className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
                 >
                   {isSaving ? "Updating..." : "Update Status"}
                 </button>
               </div>
+              ) : null}
             </div>
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={isConfirmOpen}
+        title="Update status?"
+        description={`Change ${application.code} from ${application.status.replace(
+          "-",
+          " ",
+        )} to ${status.replace("-", " ")}.`}
+        confirmLabel="Update Status"
+        tone="success"
+        isLoading={isSaving}
+        onConfirm={handleStatusChange}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   );
 }

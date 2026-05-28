@@ -9,25 +9,38 @@ import {
   Search,
   XCircle,
 } from "lucide-react";
+import { Avatar } from "../shared/Avatar";
 import { downloadPdfDocument } from "../../lib/pdfDownload";
 import { onDataUpdated } from "../../lib/socketClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { fetchStudentMeritLists } from "../../store/slices/meritListsSlice";
 
 const getMeritListPdf = (meritList) => {
+  const visibleEntries = meritList.entries.filter((entry) => entry.status !== "rejected");
   const lines = [
-    `University: ${meritList.university}`,
-    `Program: ${meritList.program}`,
-    `Session: ${meritList.session}`,
-    `Merit List: ${meritList.listNumber}`,
-    `Published: ${meritList.publishedDate}`,
-    `Total Selected: ${meritList.totalSeats}`,
+    "Official Merit List",
+    "===================",
     "",
-    "Entries",
-    "------------------------------------------------------------",
-    ...meritList.entries.map(
+    `University       : ${meritList.university}`,
+    `Program          : ${meritList.program}`,
+    `Session          : ${meritList.session}`,
+    `Merit List       : ${meritList.listNumber}`,
+    `Published        : ${meritList.publishedDate}`,
+    `Admission Seats  : ${meritList.totalSeats}`,
+    "",
+    "Position  Roll Number        Student Name                  Aggregate  Result",
+    "--------  -----------------  ----------------------------  ---------  ----------------",
+    ...visibleEntries.map(
       (entry) =>
-        `#${entry.meritPosition} | ${entry.rollNumber} | ${entry.studentName} | ${entry.aggregate}% | ${entry.status}`,
+        `${String(`#${entry.meritPosition}`).padEnd(8)}  ${String(entry.rollNumber).padEnd(
+          17,
+        )}  ${String(entry.studentName).slice(0, 28).padEnd(28)}  ${String(
+          `${entry.aggregate}%`,
+        ).padEnd(9)}  ${
+          entry.status === "selected"
+            ? "Selected for Admission Letter"
+            : "Not Eligible for Admission Letter"
+        }`,
     ),
   ];
 
@@ -93,11 +106,11 @@ function MeritLists() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-slate-900 mb-2">Merit Lists</h1>
-        <p className="text-slate-600">View published merit lists from universities (real-time updates enabled)</p>
+        <h1 className="uaams-page-title">Merit Lists</h1>
+        <p className="uaams-page-description">View published admission-letter merit lists from universities.</p>
       </div>
 
-      <div className="bg-white rounded-lg border border-slate-200 p-6">
+      <div className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6">
         <div className="grid md:grid-cols-2 gap-4">
           <div>
             <label className="block text-slate-700 mb-2 text-sm">
@@ -135,7 +148,7 @@ function MeritLists() {
         </div>
       </div>
 
-      <div className="grid md:grid-cols-4 gap-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard icon={<FileText className="w-5 h-5 text-blue-600" />} label="Total Lists" count={stats.total} color="bg-blue-50" />
         <StatCard icon={<School className="w-5 h-5 text-purple-600" />} label="Universities" count={stats.universities} color="bg-purple-50" />
         <StatCard icon={<Award className="w-5 h-5 text-emerald-600" />} label="Programs" count={stats.programs} color="bg-emerald-50" />
@@ -153,9 +166,9 @@ function MeritLists() {
       ) : null}
 
       {!isLoading && !error ? (
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className="grid gap-4 lg:grid-cols-2">
           {filteredMeritLists.length === 0 ? (
-            <div className="col-span-2 bg-white rounded-lg border border-slate-200 p-12 text-center">
+            <div className="bg-white rounded-lg border border-slate-200 p-8 text-center lg:col-span-2">
               <FileText className="w-12 h-12 text-slate-400 mx-auto mb-4" />
               <h3 className="text-slate-900 mb-2">No Merit Lists Found</h3>
               <p className="text-slate-600 text-sm">Try adjusting your filters or search terms.</p>
@@ -186,8 +199,8 @@ function MeritLists() {
 
 function StatCard({ icon, label, count, color }) {
   return (
-    <div className="bg-white rounded-lg border border-slate-200 p-4">
-      <div className={`w-10 h-10 ${color} rounded-lg flex items-center justify-center mb-3`}>{icon}</div>
+    <div className="bg-white rounded-lg border border-slate-200 p-4 shadow-sm">
+      <div className={`mb-3 flex h-10 w-10 items-center justify-center rounded-lg ${color}`}>{icon}</div>
       <div className="text-slate-600 text-sm">{label}</div>
       <div className="text-slate-900 text-2xl">{count}</div>
     </div>
@@ -196,19 +209,28 @@ function StatCard({ icon, label, count, color }) {
 
 function MeritListCard({ meritList, onView, onDownload }) {
   return (
-    <div className="bg-white rounded-lg border border-slate-200 p-6 hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-start gap-3">
-          <div className="w-12 h-12 bg-emerald-50 rounded-lg flex items-center justify-center">
-            <Award className="w-6 h-6 text-emerald-600" />
-          </div>
-          <div>
+    <article className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+      <div className="border-l-4 border-emerald-500 p-5">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+          {meritList.universityLogo ? (
+            <Avatar
+              src={meritList.universityLogo}
+              name={meritList.university}
+              size="lg"
+              className="rounded-lg bg-white"
+            />
+          ) : (
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-emerald-50">
+              <Award className="w-6 h-6 text-emerald-600" />
+            </div>
+          )}
+          <div className="min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <School className="w-4 h-4 text-emerald-600" />
               <span className="text-emerald-600">{meritList.university}</span>
             </div>
-            <h3 className="text-slate-900 mb-1">{meritList.program}</h3>
-            <div className="flex items-center gap-2 text-sm text-slate-600">
+            <h3 className="mb-1 break-words font-semibold text-slate-900">{meritList.program}</h3>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
               <span>{meritList.session}</span>
               <span>|</span>
               <span>Merit List {meritList.listNumber}</span>
@@ -217,7 +239,7 @@ function MeritListCard({ meritList, onView, onDownload }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-4 p-3 bg-slate-50 rounded-lg">
+      <div className="mb-4 grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3">
         <div>
           <div className="text-slate-600 text-sm">Total Seats</div>
           <div className="text-slate-900">{meritList.totalSeats}</div>
@@ -228,24 +250,25 @@ function MeritListCard({ meritList, onView, onDownload }) {
         </div>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
         <button
           type="button"
           onClick={onView}
-          className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm"
+          className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white transition-colors hover:bg-emerald-700"
         >
           View Details
         </button>
         <button
           type="button"
           onClick={onDownload}
-          className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors text-sm"
+          className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50"
           title="Download merit list PDF"
         >
           <Download className="w-4 h-4" />
         </button>
       </div>
-    </div>
+      </div>
+    </article>
   );
 }
 
@@ -256,20 +279,30 @@ function MeritListDetailModal({ meritList, onClose, onDownload }) {
     const search = searchRollNumber.trim().toLowerCase();
     return meritList.entries.filter(
       (entry) =>
-        !search ||
-        entry.rollNumber.toLowerCase().includes(search) ||
-        entry.studentName.toLowerCase().includes(search),
+        entry.status !== "rejected" &&
+        (!search ||
+          entry.rollNumber.toLowerCase().includes(search) ||
+          entry.studentName.toLowerCase().includes(search)),
     );
   }, [meritList.entries, searchRollNumber]);
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div className="uaams-modal-backdrop fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         <div className="p-6 border-b border-slate-200">
-          <div className="flex items-start justify-between mb-4">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <School className="w-5 h-5 text-emerald-600" />
+                {meritList.universityLogo ? (
+                  <Avatar
+                    src={meritList.universityLogo}
+                    name={meritList.university}
+                    size="sm"
+                    className="rounded-lg bg-white"
+                  />
+                ) : (
+                  <School className="w-5 h-5 text-emerald-600" />
+                )}
                 <span className="text-emerald-600">{meritList.university}</span>
                 <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs">
                   Merit List {meritList.listNumber}
@@ -285,7 +318,7 @@ function MeritListDetailModal({ meritList, onClose, onDownload }) {
             </button>
           </div>
 
-          <div className="flex gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row">
             <div className="flex-1">
               <input
                 type="text"
@@ -298,7 +331,7 @@ function MeritListDetailModal({ meritList, onClose, onDownload }) {
             <button
               type="button"
               onClick={onDownload}
-              className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors flex items-center gap-2"
+              className="flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-white transition-colors hover:bg-emerald-700"
             >
               <Download className="w-4 h-4" />
               Download PDF
@@ -311,7 +344,7 @@ function MeritListDetailModal({ meritList, onClose, onDownload }) {
             {filteredEntries.map((entry) => (
               <div
                 key={entry.id}
-                className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200"
+                className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 bg-slate-200 rounded-lg flex items-center justify-center">
@@ -322,7 +355,7 @@ function MeritListDetailModal({ meritList, onClose, onDownload }) {
                     <div className="text-slate-600 text-sm">{entry.rollNumber}</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-4">
                   <div className="text-right">
                     <div className="text-slate-900">{entry.aggregate}%</div>
                     <div className="text-slate-600 text-sm">Aggregate</div>
@@ -336,7 +369,7 @@ function MeritListDetailModal({ meritList, onClose, onDownload }) {
                     ) : (
                       <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-sm flex items-center gap-1">
                         <XCircle className="w-4 h-4" />
-                        Not Selected
+                        Not Eligible
                       </span>
                     )}
                   </div>

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Edit, Eye, Heart, Plus, Trash2 } from "lucide-react";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { ImagePreviewModal } from "../shared/ImagePreviewModal";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
+import { isSupportedProfileImage } from "../../lib/validation";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
   createUniversityBlogPost,
@@ -53,6 +56,8 @@ function UniversityBlog() {
   const [formError, setFormError] = useState("");
 
   const [previewPost, setPreviewPost] = useState(null);
+  const [deletePostId, setDeletePostId] = useState("");
+  const [imagePreviewUrl, setImagePreviewUrl] = useState("");
 
   useEffect(() => {
     dispatch(fetchUniversityBlogPostsManagement());
@@ -126,10 +131,18 @@ function UniversityBlog() {
 
   const handleImageFileChange = async (file) => {
     if (!file) return;
+
+    if (!isSupportedProfileImage(file)) {
+      setImageFileName("");
+      setFormError("Blog image must be a JPG or PNG file.");
+      return;
+    }
+
     try {
       const dataUrl = await readFileAsDataUrl(file);
       setFormData((previous) => ({ ...previous, imageUrl: dataUrl }));
       setImageFileName(file.name);
+      setFormError("");
     } catch {
       setFormError("Unable to read selected image file.");
     }
@@ -172,10 +185,11 @@ function UniversityBlog() {
     }
   };
 
-  const handleDelete = async (postId) => {
-    if (!window.confirm("Delete this blog post?")) return;
+  const handleDelete = async () => {
+    if (!deletePostId) return;
     try {
-      await dispatch(deleteUniversityBlogPost(postId)).unwrap();
+      await dispatch(deleteUniversityBlogPost(deletePostId)).unwrap();
+      setDeletePostId("");
     } catch {
       // Errors are surfaced from Redux state.
     }
@@ -185,7 +199,7 @@ function UniversityBlog() {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-slate-900">Preview</h2>
+          <h2 className="uaams-section-title">Preview</h2>
           <button
             type="button"
             onClick={() => setPreviewPost(null)}
@@ -197,7 +211,13 @@ function UniversityBlog() {
 
         <article className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           {previewPost.imageUrl ? (
-            <img src={previewPost.imageUrl} alt={previewPost.title} className="h-72 w-full object-cover" />
+            <button
+              type="button"
+              onClick={() => setImagePreviewUrl(previewPost.imageUrl)}
+              className="block w-full"
+            >
+              <img src={previewPost.imageUrl} alt={previewPost.title} className="h-72 w-full object-cover" />
+            </button>
           ) : null}
           <div className="p-6">
             <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -211,22 +231,27 @@ function UniversityBlog() {
               ))}
             </div>
             <h1 className="mb-2 text-slate-900">{previewPost.title || "Untitled Post"}</h1>
-            <p className="mb-4 text-sm text-slate-500">{previewPost.excerpt || "No excerpt"}</p>
+            <p className="mb-4 text-sm text-slate-500">{previewPost.excerpt || "No short summary"}</p>
             <div className="whitespace-pre-wrap text-sm text-slate-700">
               {previewPost.content || "No content"}
             </div>
           </div>
         </article>
+        <ImagePreviewModal
+          imageUrl={imagePreviewUrl}
+          alt={previewPost.title || "Blog image preview"}
+          onClose={() => setImagePreviewUrl("")}
+        />
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-slate-900 mb-2">Blog Management</h1>
-          <p className="text-slate-600">Create and manage blog posts for students.</p>
+          <h1 className="uaams-page-title">Blog Management</h1>
+          <p className="uaams-page-description">Create and manage blog posts for students.</p>
         </div>
         <button
           type="button"
@@ -238,7 +263,7 @@ function UniversityBlog() {
         </button>
       </div>
 
-      <div className="grid md:grid-cols-5 gap-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Total Posts" value={stats.total} />
         <StatCard label="Published" value={stats.published} />
         <StatCard label="Drafts" value={stats.drafts} />
@@ -252,7 +277,7 @@ function UniversityBlog() {
             type="text"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Search title, excerpt, tags"
+            placeholder="Search title, short summary, tags"
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <select
@@ -300,7 +325,7 @@ function UniversityBlog() {
         <div className="space-y-4">
           {filteredPosts.map((post) => (
             <article key={post.id} className="rounded-lg border border-slate-200 bg-white p-5">
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex-1">
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700">
@@ -350,7 +375,7 @@ function UniversityBlog() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleDelete(post.id)}
+                    onClick={() => setDeletePostId(post.id)}
                     disabled={isDeletingPost(post.id)}
                     className="rounded-lg p-2 text-red-600 hover:bg-red-50 disabled:opacity-60"
                   >
@@ -364,7 +389,7 @@ function UniversityBlog() {
       ) : null}
 
       {showForm ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="uaams-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-3xl rounded-xl bg-white p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="text-slate-900 mb-4">{editingId ? "Edit Blog Post" : "Create Blog Post"}</h2>
 
@@ -383,7 +408,7 @@ function UniversityBlog() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm text-slate-700">Excerpt</label>
+                <label className="mb-1 block text-sm text-slate-700">Short Summary</label>
                 <textarea
                   value={formData.excerpt}
                   onChange={(event) =>
@@ -455,8 +480,16 @@ function UniversityBlog() {
                   <label className="mb-1 block text-sm text-slate-700">Upload Image</label>
                   <input
                     type="file"
-                    accept="image/*"
-                    onChange={(event) => handleImageFileChange(event.target.files?.[0])}
+                    accept=".jpg,.jpeg,.png"
+                    onChange={(event) => {
+                      handleImageFileChange(event.target.files?.[0]);
+                      if (
+                        event.target.files?.[0] &&
+                        !isSupportedProfileImage(event.target.files[0])
+                      ) {
+                        event.target.value = "";
+                      }
+                    }}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   {imageFileName ? (
@@ -484,7 +517,7 @@ function UniversityBlog() {
                 </p>
               ) : null}
 
-              <div className="flex justify-between border-t border-slate-200 pt-4">
+              <div className="flex flex-col gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:justify-between">
                 <button
                   type="button"
                   onClick={() =>
@@ -499,7 +532,7 @@ function UniversityBlog() {
                   Preview
                 </button>
 
-                <div className="flex gap-3">
+                <div className="flex flex-col-reverse gap-3 sm:flex-row">
                   <button
                     type="button"
                     onClick={closeForm}
@@ -520,6 +553,20 @@ function UniversityBlog() {
           </div>
         </div>
       ) : null}
+      <ConfirmDialog
+        open={Boolean(deletePostId)}
+        title="Delete blog post?"
+        description="This blog post will be removed from the university blog."
+        confirmLabel="Delete Post"
+        isLoading={deletePostId ? isDeletingPost(deletePostId) : false}
+        onConfirm={handleDelete}
+        onCancel={() => setDeletePostId("")}
+      />
+      <ImagePreviewModal
+        imageUrl={imagePreviewUrl}
+        alt="Blog image preview"
+        onClose={() => setImagePreviewUrl("")}
+      />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Calendar, Edit, Paperclip, Plus, Trash2 } from "lucide-react";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
@@ -17,6 +18,8 @@ const initialFormState = {
   attachmentUrl: "",
   attachmentName: "",
   status: "draft",
+  visibleFrom: "",
+  expiresAt: "",
 };
 
 const formatDate = (value) => {
@@ -28,6 +31,14 @@ const formatDate = (value) => {
     month: "short",
     day: "numeric",
   });
+};
+
+const toDateTimeInputValue = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return offsetDate.toISOString().slice(0, 16);
 };
 
 function UniversityAnnouncements() {
@@ -50,6 +61,7 @@ function UniversityAnnouncements() {
   const [editingId, setEditingId] = useState("");
   const [formData, setFormData] = useState(initialFormState);
   const [formError, setFormError] = useState("");
+  const [deleteAnnouncementId, setDeleteAnnouncementId] = useState("");
 
   useEffect(() => {
     dispatch(fetchUniversityAnnouncementsManagement());
@@ -98,6 +110,8 @@ function UniversityAnnouncements() {
       attachmentUrl: announcement.attachmentUrl || "",
       attachmentName: announcement.attachmentName || "",
       status: announcement.status,
+      visibleFrom: toDateTimeInputValue(announcement.visibleFrom),
+      expiresAt: toDateTimeInputValue(announcement.expiresAt),
     });
     setFormError("");
     setShowForm(true);
@@ -115,6 +129,20 @@ function UniversityAnnouncements() {
     setFormError("");
 
     try {
+      if (formData.status === "published" && !formData.expiresAt) {
+        setFormError("Visible until date and time is required for published announcements.");
+        return;
+      }
+
+      if (formData.visibleFrom && formData.expiresAt) {
+        const start = new Date(formData.visibleFrom);
+        const end = new Date(formData.expiresAt);
+        if (end.getTime() <= start.getTime()) {
+          setFormError("Visible until must be after visible from.");
+          return;
+        }
+      }
+
       if (editingId) {
         await dispatch(
           updateUniversityAnnouncement({
@@ -155,10 +183,11 @@ function UniversityAnnouncements() {
 
   const isDeletingAnnouncement = (announcementId) => deletingIds.includes(String(announcementId));
 
-  const handleDelete = async (announcementId) => {
-    if (!window.confirm("Delete this announcement?")) return;
+  const handleDelete = async () => {
+    if (!deleteAnnouncementId) return;
     try {
-      await dispatch(deleteUniversityAnnouncement(announcementId)).unwrap();
+      await dispatch(deleteUniversityAnnouncement(deleteAnnouncementId)).unwrap();
+      setDeleteAnnouncementId("");
     } catch {
       // Errors are surfaced from Redux state.
     }
@@ -166,10 +195,10 @@ function UniversityAnnouncements() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-slate-900 mb-2">Announcements</h1>
-          <p className="text-slate-600">Manage university announcements and updates</p>
+          <h1 className="uaams-page-title">Announcements</h1>
+          <p className="uaams-page-description">Manage university announcements and updates</p>
         </div>
         <button
           type="button"
@@ -181,7 +210,7 @@ function UniversityAnnouncements() {
         </button>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-4">
+      <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Total" count={stats.total} />
         <StatCard label="Published" count={stats.published} />
         <StatCard label="Drafts" count={stats.draft} />
@@ -244,7 +273,7 @@ function UniversityAnnouncements() {
               key={announcement.id}
               className="rounded-lg border border-slate-200 bg-white p-5"
             >
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex-1">
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700">
@@ -283,6 +312,11 @@ function UniversityAnnouncements() {
                       {formatDate(announcement.publishedAt || announcement.createdAt)}
                     </span>
                   </div>
+                  {announcement.expiresAt ? (
+                    <div className="mt-1 text-xs text-slate-500">
+                      Visible until: {new Date(announcement.expiresAt).toLocaleString()}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -294,7 +328,7 @@ function UniversityAnnouncements() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleDelete(announcement.id)}
+                    onClick={() => setDeleteAnnouncementId(announcement.id)}
                     disabled={isDeletingAnnouncement(announcement.id)}
                     className="rounded-lg p-2 text-red-600 hover:bg-red-50 disabled:opacity-60"
                   >
@@ -308,7 +342,7 @@ function UniversityAnnouncements() {
       ) : null}
 
       {showForm ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="uaams-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-2xl rounded-xl bg-white p-6">
             <h2 className="text-slate-900 mb-4">
               {editingId ? "Edit Announcement" : "Create Announcement"}
@@ -384,6 +418,36 @@ function UniversityAnnouncements() {
                 </div>
               </div>
 
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm text-slate-700">
+                    Visible From
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={formData.visibleFrom}
+                    onChange={(event) =>
+                      setFormData((previous) => ({ ...previous, visibleFrom: event.target.value }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm text-slate-700">
+                    Visible Until
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={formData.expiresAt}
+                    onChange={(event) =>
+                      setFormData((previous) => ({ ...previous, expiresAt: event.target.value }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required={formData.status === "published"}
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="mb-1 block text-sm text-slate-700">
                   Merit List / Attachment File (Optional)
@@ -420,7 +484,7 @@ function UniversityAnnouncements() {
                 </p>
               ) : null}
 
-              <div className="flex justify-end gap-3 border-t border-slate-200 pt-4">
+              <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
                 <button
                   type="button"
                   onClick={closeForm}
@@ -440,6 +504,15 @@ function UniversityAnnouncements() {
           </div>
         </div>
       ) : null}
+      <ConfirmDialog
+        open={Boolean(deleteAnnouncementId)}
+        title="Delete announcement?"
+        description="This announcement will be removed from the university portal."
+        confirmLabel="Delete Announcement"
+        isLoading={deleteAnnouncementId ? isDeletingAnnouncement(deleteAnnouncementId) : false}
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteAnnouncementId("")}
+      />
     </div>
   );
 }

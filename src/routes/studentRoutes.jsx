@@ -26,7 +26,12 @@ const StudentApplicationPaymentPage = lazyNamed(
 export const studentNavItems = [
   { to: "/student", label: "Overview", icon: Home, end: true },
   { to: "/student/profile", label: "Profile", icon: User },
-  { to: "/student/recommendations", label: "Recommendations", icon: TrendingUp },
+  {
+    to: "/student/recommendations",
+    label: "Recommendations",
+    icon: TrendingUp,
+    activePaths: ["/student/apply"],
+  },
   { to: "/student/applications", label: "Applications", icon: FileText },
   { to: "/student/merit-lists", label: "Merit Lists", icon: Award },
   { to: "/student/announcements", label: "Announcements", icon: Bell },

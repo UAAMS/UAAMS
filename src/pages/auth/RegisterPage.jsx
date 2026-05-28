@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { Building2, LockKeyhole, Mail, Phone, UserRound } from "lucide-react";
+import { Building2, CheckCircle2, LockKeyhole, Mail, Phone, UserRound } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AuthSplitShell, authInputClass } from "../../components/shared/AuthSplitShell";
 import { PasswordField } from "../../components/shared/PasswordField";
 import { useAuth } from "../../context/AuthContext";
+import {
+  getPasswordChecks,
+  getPasswordStrength,
+  isNumberInRange,
+  isStrongPassword,
+  isValidEmail,
+  isValidName,
+  isValidPhone,
+} from "../../lib/validation";
 import { roleLabelMap } from "../../utils/rolePaths";
 
 const roleOptions = ["student", "university", "blogger", "admin"];
@@ -33,6 +42,7 @@ export const RegisterPage = () => {
   const [formData, setFormData] = useState(defaultForm);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isUniversity = useMemo(() => role === "university", [role]);
@@ -46,16 +56,66 @@ export const RegisterPage = () => {
 
   const updateField = (field, value) => {
     setFormData((previous) => ({ ...previous, [field]: value }));
+    setFieldErrors((previous) => {
+      if (!previous[field]) return previous;
+      const next = { ...previous };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const validateRegistration = () => {
+    const nextErrors = {};
+
+    if (isUniversity) {
+      if (formData.name.trim().length < 3) {
+        nextErrors.name = "Enter a valid university name.";
+      }
+      if (!isValidName(formData.representativeName)) {
+        nextErrors.representativeName = "Use letters, spaces, apostrophes, periods, or hyphens.";
+      }
+      if (!isValidPhone(formData.phone)) {
+        nextErrors.phone = "Enter a valid Pakistani mobile number, for example +92-300-1234567.";
+      }
+      if (formData.location.trim().length < 2) {
+        nextErrors.location = "Enter the university city or location.";
+      }
+      if (!isNumberInRange(formData.establishedYear, 1800, new Date().getFullYear())) {
+        nextErrors.establishedYear = "Enter a valid established year.";
+      }
+      if (!isNumberInRange(formData.studentCount, 1, 1000000)) {
+        nextErrors.studentCount = "Enter a valid student count.";
+      }
+    } else if (!isValidName(formData.name)) {
+      nextErrors.name = "Use letters, spaces, apostrophes, periods, or hyphens.";
+    }
+
+    if (!isValidEmail(formData.email)) {
+      nextErrors.email = "Enter a valid email address.";
+    }
+
+    if (!isStrongPassword(formData.password)) {
+      nextErrors.password = "Password must meet all listed requirements.";
+    }
+
+    if (formData.password !== formData.confirmPassword) {
+      nextErrors.confirmPassword = "Passwords do not match.";
+    }
+
+    return nextErrors;
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     setMessage("");
     setError("");
+    setFieldErrors({});
     setIsSubmitting(true);
 
-    if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match.");
+    const validationErrors = validateRegistration();
+    if (Object.keys(validationErrors).length > 0) {
+      setFieldErrors(validationErrors);
+      setError("Please correct the highlighted fields.");
       setIsSubmitting(false);
       return;
     }
@@ -114,7 +174,7 @@ export const RegisterPage = () => {
             </div>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6">
             <div className="grid gap-4 md:grid-cols-2">
               <AuthField
                 icon={isUniversity ? <Building2 className="h-4 w-4" /> : <UserRound className="h-4 w-4" />}
@@ -122,6 +182,7 @@ export const RegisterPage = () => {
                 value={formData.name}
                 onChange={(value) => updateField("name", value)}
                 placeholder={isUniversity ? "Enter university name" : "Enter your full name"}
+                error={fieldErrors.name}
                 required
               />
 
@@ -132,6 +193,7 @@ export const RegisterPage = () => {
                 value={formData.email}
                 onChange={(value) => updateField("email", value)}
                 placeholder="your.email@example.com"
+                error={fieldErrors.email}
                 required
               />
             </div>
@@ -146,6 +208,7 @@ export const RegisterPage = () => {
                     value={formData.representativeName}
                     onChange={(value) => updateField("representativeName", value)}
                     placeholder="Enter representative's full name"
+                    error={fieldErrors.representativeName}
                     required
                   />
                   <AuthField
@@ -154,6 +217,7 @@ export const RegisterPage = () => {
                     value={formData.phone}
                     onChange={(value) => updateField("phone", value)}
                     placeholder="+92-300-1234567"
+                    error={fieldErrors.phone}
                     required
                   />
                   <AuthField
@@ -162,6 +226,7 @@ export const RegisterPage = () => {
                     value={formData.location}
                     onChange={(value) => updateField("location", value)}
                     placeholder="City, Province"
+                    error={fieldErrors.location}
                     required
                   />
                 </div>
@@ -181,6 +246,7 @@ export const RegisterPage = () => {
                     value={formData.establishedYear}
                     onChange={(value) => updateField("establishedYear", value)}
                     placeholder="e.g., 1990"
+                    error={fieldErrors.establishedYear}
                     required
                   />
                   <AuthField
@@ -189,6 +255,7 @@ export const RegisterPage = () => {
                     value={formData.studentCount}
                     onChange={(value) => updateField("studentCount", value)}
                     placeholder="e.g., 5000"
+                    error={fieldErrors.studentCount}
                     required
                   />
                 </div>
@@ -202,14 +269,13 @@ export const RegisterPage = () => {
                     value={formData.programsOffered}
                     onChange={(event) => updateField("programsOffered", event.target.value)}
                     placeholder="List programs offered"
-                    className={`${authInputClass} min-h-24 resize-y rounded-none`}
+                    className={`${authInputClass} min-h-24 resize-y`}
                     required
                   />
                 </div>
               </>
             ) : null}
 
-            <SectionLabel>Security</SectionLabel>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase text-emerald-700">
@@ -225,6 +291,9 @@ export const RegisterPage = () => {
                   required
                   autoComplete="new-password"
                 />
+                {fieldErrors.password ? (
+                  <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>
+                ) : null}
               </div>
               <div>
                 <label className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase text-emerald-700">
@@ -240,8 +309,13 @@ export const RegisterPage = () => {
                   required
                   autoComplete="new-password"
                 />
+                {fieldErrors.confirmPassword ? (
+                  <p className="mt-1 text-xs text-red-600">{fieldErrors.confirmPassword}</p>
+                ) : null}
               </div>
             </div>
+
+            <PasswordStrength value={formData.password} />
 
             {error ? (
               <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -277,12 +351,13 @@ function AuthField({
   onChange,
   placeholder,
   required = false,
+  error = "",
 }) {
   return (
-    <div>
+    <div className="min-w-0">
       <label className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase text-emerald-700">
         {icon}
-        {label}
+        <span className="min-w-0 break-words">{label}</span>
       </label>
       <input
         type={type}
@@ -292,6 +367,38 @@ function AuthField({
         className={authInputClass}
         required={required}
       />
+      {error ? <p className="mt-1 text-xs text-red-600">{error}</p> : null}
+    </div>
+  );
+}
+
+function PasswordStrength({ value }) {
+  const checks = getPasswordChecks(value);
+  const strength = getPasswordStrength(value);
+
+  return (
+    <div className="rounded-lg border border-emerald-100 bg-white/65 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold uppercase text-slate-600">
+        <span>Password strength</span>
+        <span className="text-emerald-700">{strength.label}</span>
+      </div>
+      <div className="mt-2 h-2 rounded-full bg-slate-100">
+        <div
+          className={`h-full rounded-full ${strength.className}`}
+          style={{ width: `${strength.percent}%` }}
+        />
+      </div>
+      <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+        {checks.map((rule) => (
+          <div
+            key={rule.key}
+            className={rule.met ? "flex items-center gap-2 text-emerald-700" : "flex items-center gap-2"}
+          >
+            <CheckCircle2 className={`h-3.5 w-3.5 ${rule.met ? "text-emerald-600" : "text-slate-300"}`} />
+            {rule.label}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

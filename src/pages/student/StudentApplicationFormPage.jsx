@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, School } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { DashboardPageShell } from "../shared/DashboardPageShell";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
+import {
+  isNumberInRange,
+  isSupportedDocumentFile,
+  isSupportedProfileImage,
+  isValidCnic,
+  isValidEmail,
+  isValidName,
+  isValidPhone,
+} from "../../lib/validation";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
   clearStudentApplicationFormErrors,
@@ -18,6 +27,8 @@ const getFieldValue = ({
   onFileChange,
   error,
   fileHint,
+  fileHelperText,
+  accept,
   onClearFile,
 }) => {
   const commonClass = `w-full px-3 py-2 border rounded-lg text-sm ${
@@ -58,7 +69,7 @@ const getFieldValue = ({
       <div className="space-y-2">
         {value ? (
           <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-            <span>Attached: {fileHint || "Document uploaded"}</span>
+            <span className="min-w-0 truncate">Attached: {fileHint || "Document uploaded"}</span>
             <button
               type="button"
               onClick={() => onClearFile(field.id)}
@@ -70,9 +81,11 @@ const getFieldValue = ({
         ) : null}
         <input
           type="file"
+          accept={accept}
           onChange={(event) => onFileChange(field.id, event.target.files?.[0])}
           className={commonClass}
         />
+        {fileHelperText ? <p className="text-xs text-slate-500">{fileHelperText}</p> : null}
       </div>
     );
   }
@@ -89,6 +102,66 @@ const getFieldValue = ({
 };
 
 const hasTextValue = (value) => String(value ?? "").trim().length > 0;
+
+const getFileRulesForField = (field) => {
+  const label = String(field?.label || "").toLowerCase();
+  if ((label.includes("profile") && label.includes("picture")) || label.includes("photo")) {
+    return {
+      accept: ".jpg,.jpeg,.png",
+      helperText: "JPG or PNG only.",
+      isValid: isSupportedProfileImage,
+    };
+  }
+
+  return {
+    accept: ".pdf,.jpg,.jpeg,.png",
+    helperText: "PDF, JPG, or PNG only.",
+    isValid: isSupportedDocumentFile,
+  };
+};
+
+const validateFieldValue = (field, value) => {
+  const label = String(field?.label || "This field").trim();
+  const lowerLabel = label.toLowerCase();
+  const textValue = String(value || "").trim();
+
+  if (field.required && !textValue) {
+    return `${label} is required.`;
+  }
+
+  if (!textValue || field.type === "file") {
+    return "";
+  }
+
+  if (lowerLabel.includes("email") && !isValidEmail(textValue)) {
+    return "Enter a valid email address.";
+  }
+
+  if ((lowerLabel.includes("phone") || lowerLabel.includes("mobile")) && !isValidPhone(textValue)) {
+    return "Enter a valid Pakistani mobile number.";
+  }
+
+  if ((lowerLabel.includes("cnic") || lowerLabel.includes("b-form")) && !isValidCnic(textValue)) {
+    return "Enter a valid CNIC or B-form number.";
+  }
+
+  if (
+    (lowerLabel.includes("name") || lowerLabel.includes("father")) &&
+    !lowerLabel.includes("university") &&
+    !isValidName(textValue)
+  ) {
+    return "Use letters, spaces, apostrophes, periods, or hyphens.";
+  }
+
+  if (field.type === "number" || lowerLabel.includes("marks") || lowerLabel.includes("aggregate")) {
+    const maxValue = lowerLabel.includes("aggregate") || lowerLabel.includes("percentage") ? 100 : 1100;
+    if (!isNumberInRange(textValue, 0, maxValue)) {
+      return `${label} must be a number between 0 and ${maxValue}.`;
+    }
+  }
+
+  return "";
+};
 
 const pickFirstValue = (...values) => {
   for (const value of values) {
@@ -528,6 +601,17 @@ export const StudentApplicationFormPage = () => {
   const handleFileChange = async (fieldId, file) => {
     if (!file) return;
 
+    const field = formFields.find((item) => String(item.id) === String(fieldId));
+    const fileRules = getFileRulesForField(field);
+    if (!fileRules.isValid(file)) {
+      setErrors((previous) => ({
+        ...previous,
+        [fieldId]: `${field?.label || "File"} must be ${fileRules.helperText.toLowerCase()}`,
+      }));
+      setFileHints((previous) => ({ ...previous, [fieldId]: "" }));
+      return;
+    }
+
     try {
       const dataUrl = await readFileAsDataUrl(file);
       setFormData((previous) => ({ ...previous, [fieldId]: dataUrl }));
@@ -574,8 +658,9 @@ export const StudentApplicationFormPage = () => {
     const nextErrors = {};
 
     formFields.forEach((field) => {
-      if (field.required && !String(formData[field.id] || "").trim()) {
-        nextErrors[field.id] = `${field.label} is required.`;
+      const fieldError = validateFieldValue(field, formData[field.id]);
+      if (fieldError) {
+        nextErrors[field.id] = fieldError;
       }
     });
 
@@ -658,32 +743,14 @@ export const StudentApplicationFormPage = () => {
         </button>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border border-slate-200 bg-white p-6">
+      <UniversityApplicationHeader university={university} program={resolvedProgram} />
+      <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
         {draftId ? (
           <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
             Editing unpaid draft. You can update details before payment.
           </div>
         ) : null}
-        <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-800">
-          Application Fee: PKR {Number(university.applicationFee || 0).toLocaleString()} (to be paid on
-          next page)
-        </div>
-        {autoFillMessage ? (
-          <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            {autoFillMessage}
-          </div>
-        ) : null}
-        {activeTemplate ? (
-          <div className="flex justify-start">
-            <button
-              type="button"
-              onClick={() => setShowTemplatePreview(true)}
-              className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm text-indigo-700 hover:bg-indigo-100"
-            >
-              Preview Generated Template
-            </button>
-          </div>
-        ) : null}
+        
         {programMissingFromUniversity ? (
           <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
             This program is no longer available. Please go back to recommendations.
@@ -700,7 +767,9 @@ export const StudentApplicationFormPage = () => {
           </div>
         ) : null}
 
-        {formFields.map((field) => (
+        {formFields.map((field) => {
+          const fileRules = field.type === "file" ? getFileRulesForField(field) : null;
+          return (
           <div key={field.id}>
             <label className="mb-2 block text-sm text-slate-700">
               {field.label}
@@ -713,19 +782,22 @@ export const StudentApplicationFormPage = () => {
               onFileChange: handleFileChange,
               error: errors[field.id],
               fileHint: fileHints[field.id],
+              fileHelperText: fileRules?.helperText,
+              accept: fileRules?.accept,
               onClearFile: handleClearFile,
             })}
             {errors[field.id] ? (
               <p className="mt-1 text-xs text-red-600">{errors[field.id]}</p>
             ) : null}
           </div>
-        ))}
+          );
+        })}
 
         {effectiveSubmitError ? (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{effectiveSubmitError}</p>
         ) : null}
 
-        <div className="flex justify-end gap-3 border-t border-slate-200 pt-4">
+        <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={() => navigate("/student/recommendations")}
@@ -764,6 +836,30 @@ export const StudentApplicationFormPage = () => {
   );
 };
 
+function UniversityApplicationHeader({ university, program }) {
+  const logoUrl = university?.logo || university?.representativeProfilePicture || "";
+
+  return (
+    <section className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center">
+      <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-emerald-100">
+        {logoUrl ? (
+          <img
+            src={logoUrl}
+            alt={`${university?.name || "University"} logo`}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <School className="h-8 w-8 text-emerald-600" />
+        )}
+      </div>
+      <div>
+        <h2 className="text-lg font-semibold text-slate-900">{university?.name || "University"}</h2>
+        <p className="text-sm text-slate-600">{program || "Program not selected"}</p>
+      </div>
+    </section>
+  );
+}
+
 const ApplicationTemplatePreviewModal = ({
   template,
   formData,
@@ -779,7 +875,7 @@ const ApplicationTemplatePreviewModal = ({
   const mappings = Array.isArray(template?.fieldMappings) ? template.fieldMappings : [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+    <div className="uaams-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="max-h-[95vh] w-full max-w-6xl overflow-hidden rounded-xl bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
           <div>

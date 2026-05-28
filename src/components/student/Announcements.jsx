@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Bell, Calendar, Download, Paperclip, School, TrendingUp } from "lucide-react";
+import { AlertCircle, Bell, Calendar, ChevronRight, Download, Paperclip, School, TrendingUp } from "lucide-react";
+import { Avatar } from "../shared/Avatar";
 import { onDataUpdated } from "../../lib/socketClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { fetchStudentAnnouncements } from "../../store/slices/announcementsSlice";
@@ -13,6 +14,7 @@ function Announcements() {
   } = useAppSelector((state) => state.announcements);
   const [selectedType, setSelectedType] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     dispatch(fetchStudentAnnouncements());
@@ -27,9 +29,23 @@ function Announcements() {
     };
   }, [dispatch]);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 60000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const filteredAnnouncements = useMemo(
     () =>
       announcements.filter((announcement) => {
+        const visibleFrom = announcement.visibleFrom
+          ? new Date(announcement.visibleFrom).getTime()
+          : 0;
+        const expiresAt = announcement.expiresAt
+          ? new Date(announcement.expiresAt).getTime()
+          : Number.POSITIVE_INFINITY;
+        const isVisible =
+          (Number.isNaN(visibleFrom) || visibleFrom <= now) &&
+          (Number.isNaN(expiresAt) || expiresAt > now);
         const matchesType = selectedType === "all" || announcement.type === selectedType;
         const needle = searchTerm.trim().toLowerCase();
         const matchesSearch =
@@ -38,9 +54,9 @@ function Announcements() {
           announcement.university.toLowerCase().includes(needle) ||
           announcement.content.toLowerCase().includes(needle);
 
-        return matchesType && matchesSearch;
+        return isVisible && matchesType && matchesSearch;
       }),
-    [announcements, selectedType, searchTerm],
+    [announcements, now, selectedType, searchTerm],
   );
 
   const stats = useMemo(
@@ -56,11 +72,11 @@ function Announcements() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-slate-900 mb-2">Announcements & Updates</h1>
-        <p className="text-slate-600">Stay updated with the latest university announcements (real-time updates enabled)</p>
+        <h1 className="uaams-page-title">Announcements & Updates</h1>
+        <p className="uaams-page-description">Stay updated with the latest university announcements.</p>
       </div>
 
-      <div className="bg-white rounded-lg border border-slate-200 p-6">
+      <div className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6">
         <div className="grid md:grid-cols-2 gap-4">
           <div>
             <label className="block text-slate-700 mb-2 text-sm">Filter by Type</label>
@@ -89,7 +105,7 @@ function Announcements() {
         </div>
       </div>
 
-      <div className="grid md:grid-cols-4 gap-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           icon={<Bell className="w-5 h-5 text-blue-600" />}
           label="Total"
@@ -147,8 +163,8 @@ function Announcements() {
 
 function StatCard({ icon, label, count, color }) {
   return (
-    <div className="bg-white rounded-lg border border-slate-200 p-4">
-      <div className={`w-10 h-10 ${color} rounded-lg flex items-center justify-center mb-3`}>{icon}</div>
+    <div className="bg-white rounded-lg border border-slate-200 p-4 shadow-sm">
+      <div className={`mb-3 flex h-10 w-10 items-center justify-center rounded-lg ${color}`}>{icon}</div>
       <div className="text-slate-600 text-sm">{label}</div>
       <div className="text-slate-900 text-2xl">{count}</div>
     </div>
@@ -188,16 +204,24 @@ function AnnouncementCard({ announcement }) {
   }, [announcement.type]);
 
   return (
-    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden hover:shadow-md transition-shadow">
-      <div className="p-6">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-start gap-3 flex-1">
-            <div className={`w-10 h-10 ${styles.bg} rounded-lg flex items-center justify-center ${styles.text}`}>
-              {styles.icon}
-            </div>
+    <article className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+      <div className="border-l-4 border-blue-400 p-4 sm:p-6">
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex flex-1 items-start gap-3">
+            {announcement.universityLogo ? (
+              <Avatar
+                src={announcement.universityLogo}
+                name={announcement.university}
+                size="md"
+                className="rounded-lg bg-white"
+              />
+            ) : (
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${styles.bg} ${styles.text}`}>
+                {styles.icon}
+              </div>
+            )}
             <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1">
-                <School className="w-4 h-4 text-emerald-600" />
+              <div className="mb-1 flex flex-wrap items-center gap-2">
                 <span className="text-emerald-600">{announcement.university}</span>
                 <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs">
                   {announcement.category}
@@ -224,18 +248,19 @@ function AnnouncementCard({ announcement }) {
               ) : null}
             </div>
           </div>
-          <span className="text-slate-500 text-sm whitespace-nowrap ml-4">{announcement.date}</span>
+          <span className="text-sm text-slate-500 sm:ml-4 sm:whitespace-nowrap">{announcement.date}</span>
         </div>
 
         <button
           type="button"
           onClick={() => setExpanded((previous) => !previous)}
-          className="text-emerald-600 hover:text-emerald-700 text-sm mt-2"
+          className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 mt-2"
         >
-          {expanded ? "Show Less" : "Read More"} {"->"}
+          {expanded ? "Show Less" : "Read More"}
+          <ChevronRight className="w-4 h-4" />
         </button>
       </div>
-    </div>
+    </article>
   );
 }
 

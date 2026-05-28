@@ -17,6 +17,17 @@ const { normalizePaymentMethods } = require("../utils/paymentMethods");
 const { createZipArchive } = require("../utils/zipArchive");
 const { getSystemApplicationTemplate } = require("../config/systemApplicationTemplate");
 const {
+  isNumberInRange,
+  isPdfUpload,
+  isSupportedDocumentUpload,
+  isSupportedProfileImageUpload,
+  isValidCnic,
+  isValidEmail,
+  isValidPhone,
+  isValidRollNumber,
+  isValidTransactionReference,
+} = require("../utils/validators");
+const {
   sendRollNumberAssignedEmail,
   sendAdmissionLetterIssuedEmail,
 } = require("../utils/mailer");
@@ -155,6 +166,44 @@ const normalizeApplicationFormData = async (formData, userId) => {
     preferredNamePrefix: "form-field",
   });
   return result.value;
+};
+
+const validateIncomingApplicationFormData = (formData = {}) => {
+  const payload = formData && typeof formData === "object" && !Array.isArray(formData) ? formData : {};
+  const email = String(payload["2"] || payload.email || "").trim();
+  const phone = String(payload["3"] || payload.phone || "").trim();
+  const cnic = String(payload["4"] || payload.cnic || "").trim();
+  const matricMarks = payload["7"] || payload.matric || "";
+  const interMarks = payload["8"] || payload.fsc || "";
+
+  if (email && !isValidEmail(email)) {
+    throw new ApiError(400, "Enter a valid email address.");
+  }
+  if (phone && !isValidPhone(phone)) {
+    throw new ApiError(400, "Enter a valid Pakistani mobile number.");
+  }
+  if (cnic && !isValidCnic(cnic)) {
+    throw new ApiError(400, "Enter a valid CNIC or B-form number.");
+  }
+  if (String(matricMarks || "").trim() && !isNumberInRange(matricMarks, 0, 1100)) {
+    throw new ApiError(400, "Matric marks must be between 0 and 1100.");
+  }
+  if (String(interMarks || "").trim() && !isNumberInRange(interMarks, 0, 1100)) {
+    throw new ApiError(400, "Inter marks must be between 0 and 1100.");
+  }
+
+  Object.entries(payload).forEach(([fieldId, value]) => {
+    const text = String(value || "").trim();
+    if (!text || !DATA_URL_PATTERN.test(text)) return;
+    const upload = { dataUrl: text };
+    const isProfilePicture = String(fieldId).includes("profile-picture") || String(fieldId) === "9";
+    if (isProfilePicture && !isSupportedProfileImageUpload(upload)) {
+      throw new ApiError(400, "Profile picture must be a JPG or PNG file.");
+    }
+    if (!isProfilePicture && !isSupportedDocumentUpload(upload)) {
+      throw new ApiError(400, "Uploaded application documents must be PDF, JPG, or PNG files.");
+    }
+  });
 };
 
 const DATA_URL_PATTERN = /^data:([^;]+);base64,(.+)$/i;
@@ -404,6 +453,7 @@ const buildApplicationPdfBuffer = async ({ application, universityForm, universi
 
 const createApplication = asyncHandler(async (req, res) => {
   const { universityId, program, formData: incomingFormData = {}, payment } = req.body;
+  validateIncomingApplicationFormData(incomingFormData);
   const formData = await normalizeApplicationFormData(incomingFormData, req.user._id);
 
   ensureObjectId(universityId, "Invalid university id.");
@@ -505,9 +555,29 @@ const getMyApplications = asyncHandler(async (req, res) => {
     .populate("university", "name")
     .lean();
 
+  const universityIds = Array.from(
+    new Set(
+      applications
+        .map((application) => resolveIdValue(application.university))
+        .filter(Boolean),
+    ),
+  );
+  const profiles = await UniversityProfile.find({ university: { $in: universityIds } })
+    .select("university universityName logo")
+    .lean();
+  const profileMap = new Map(profiles.map((profile) => [String(profile.university), profile]));
+
+  const enrichedApplications = applications.map((application) => {
+    const universityId = resolveIdValue(application.university);
+    return {
+      ...application,
+      universityProfile: profileMap.get(universityId) || null,
+    };
+  });
+
   return res.status(200).json({
     success: true,
-    data: { applications },
+    data: { applications: enrichedApplications },
   });
 });
 
@@ -530,7 +600,7 @@ const getApplicationById = asyncHandler(async (req, res) => {
   const universityProfile = await UniversityProfile.findOne({
     university: resolveIdValue(application.university),
   })
-    .select("paymentMethods")
+    .select("paymentMethods universityName logo representativeName representativeProfilePicture")
     .lean();
 
   return res.status(200).json({
@@ -538,6 +608,14 @@ const getApplicationById = asyncHandler(async (req, res) => {
     data: {
       application: {
         ...application,
+        universityProfile: universityProfile
+          ? {
+              universityName: universityProfile.universityName || "",
+              logo: universityProfile.logo || "",
+              representativeName: universityProfile.representativeName || "",
+              representativeProfilePicture: universityProfile.representativeProfilePicture || "",
+            }
+          : null,
         paymentMethods: normalizePaymentMethods(universityProfile?.paymentMethods).filter(
           (method) => method.isActive,
         ),
@@ -702,12 +780,12 @@ const payApplicationFee = asyncHandler(async (req, res) => {
     paymentProofFileName,
   } = req.body;
 
-  if (!transactionReference) {
-    throw new ApiError(400, "Transaction reference is required.");
+  if (!isValidTransactionReference(transactionReference)) {
+    throw new ApiError(400, "Enter a valid transaction reference.");
   }
 
-  if (!paymentProof) {
-    throw new ApiError(400, "Payment screenshot is required.");
+  if (!isSupportedDocumentUpload({ dataUrl: paymentProof, fileName: paymentProofFileName })) {
+    throw new ApiError(400, "Payment proof must be a PDF, JPG, or PNG file.");
   }
 
   const application = await Application.findById(req.params.id);
@@ -777,6 +855,7 @@ const updateMyDraftApplication = asyncHandler(async (req, res) => {
   }
 
   const program = String(req.body?.program || "").trim();
+  validateIncomingApplicationFormData(req.body?.formData || {});
   const formData = await normalizeApplicationFormData(req.body?.formData || {}, req.user._id);
 
   if (!program) {
@@ -974,7 +1053,7 @@ const updateApplicationStatus = asyncHandler(async (req, res) => {
         "Roll number must be assigned before moving to finalized status."
       );
     }
-    if (!application.admissionLetter?.issued) {
+    if (application.eligibleForAdmissionLetter !== false && !application.admissionLetter?.issued) {
       throw new ApiError(
         400,
         "Admission letter must be issued before moving to finalized status."
@@ -1019,8 +1098,16 @@ const assignRollNumber = asyncHandler(async (req, res) => {
 
   const { number, slipFileUrl, slipFileName, eligibleForAdmissionLetter } = req.body;
 
-  if (!number) {
-    throw new ApiError(400, "Roll number is required.");
+  if (!isValidRollNumber(number)) {
+    throw new ApiError(400, "Enter a valid roll number.");
+  }
+
+  if (!String(slipFileUrl || "").trim()) {
+    throw new ApiError(400, "Roll number slip PDF is required.");
+  }
+
+  if (!isPdfUpload({ dataUrl: slipFileUrl, fileName: slipFileName, url: slipFileUrl })) {
+    throw new ApiError(400, "Roll number slip must be a PDF file.");
   }
 
   const application = await Application.findById(req.params.id);
@@ -1117,6 +1204,10 @@ const uploadAdmissionLetter = asyncHandler(async (req, res) => {
 
   if (!letterNumber || !fileUrl) {
     throw new ApiError(400, "Letter number and file URL are required.");
+  }
+
+  if (!isPdfUpload({ dataUrl: fileUrl, fileName, url: fileUrl })) {
+    throw new ApiError(400, "Admission letter must be a PDF file.");
   }
 
   const application = await Application.findById(req.params.id);

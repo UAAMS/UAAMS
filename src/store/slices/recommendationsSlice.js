@@ -15,6 +15,9 @@ const normalizeRecommendation = (item) => ({
   matchScore: Number(item?.matchScore || 0),
   type: String(item?.type || "public"),
   applicationFee: Number(item?.applicationFee || 0),
+  logo: item?.logo || "",
+  representativeName: item?.representativeName || "",
+  representativeProfilePicture: item?.representativeProfilePicture || "",
 });
 
 const RECOMMENDATIONS_CACHE_MS = 60 * 1000;

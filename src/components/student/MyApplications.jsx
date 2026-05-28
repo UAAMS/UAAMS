@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
 import {
   FileText,
@@ -7,7 +8,9 @@ import {
   XCircle,
   AlertCircle,
   Download,
+  School,
 } from "lucide-react";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { api } from "../../lib/apiClient";
 import { downloadPdfDocument, downloadPdfFromUrl } from "../../lib/pdfDownload";
 import { onDataUpdated } from "../../lib/socketClient";
@@ -33,6 +36,7 @@ export function MyApplications() {
   const { items: applications, loading: isLoading, error } = useAppSelector(
     (state) => state.applications.student,
   );
+  const location = useLocation();
   const [selectedStatus, setSelectedStatus] = useState("all");
 
   useEffect(() => {
@@ -49,6 +53,17 @@ export function MyApplications() {
       unsubscribe();
     };
   }, [dispatch]);
+
+  useEffect(() => {
+    const applicationId = location?.state?.applicationId;
+    if (!applicationId) return;
+    // attempt to scroll to the application card after a short delay when data loaded
+    const t = setTimeout(() => {
+      const el = document.getElementById(`application-${applicationId}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 250);
+    return () => clearTimeout(t);
+  }, [location?.state, applications]);
 
   const filteredApplications = useMemo(
     () =>
@@ -83,8 +98,8 @@ export function MyApplications() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-slate-900 mb-2">My Applications</h1>
-        <p className="text-slate-600">Track the status of your university applications</p>
+        <h1 className="uaams-page-title">My Applications</h1>
+        <p className="uaams-page-description">Track the status of your university applications</p>
       </div>
 
       <div className="bg-white rounded-lg border border-slate-200 p-4">
@@ -161,6 +176,7 @@ function ApplicationCard({ application, onDeleteDraft }) {
   const navigate = useNavigate();
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [draftError, setDraftError] = useState("");
 
   const getStatusIcon = () => {
@@ -201,7 +217,14 @@ function ApplicationCard({ application, onDeleteDraft }) {
     }
   };
 
-  const statusText = application.status
+  const isUnpaidDraft =
+    application.status === "not-submitted" &&
+    application.paymentStatus !== "paid" &&
+    Boolean(application.universityId);
+
+  const statusText = isUnpaidDraft
+    ? "In Payment"
+    : application.status
     .split("-")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
@@ -220,17 +243,12 @@ function ApplicationCard({ application, onDeleteDraft }) {
       : application.status === "finalized"
       ? "100%"
       : "0%";
-  const isUnpaidDraft =
-    application.status === "not-submitted" &&
-    application.paymentStatus !== "paid" &&
-    Boolean(application.universityId);
-
   const handleDeleteDraft = async () => {
-    if (!window.confirm("Delete this unpaid draft application?")) return;
     setDraftError("");
     setIsDeleting(true);
     try {
       await onDeleteDraft?.(application.id);
+      setDeleteDialogOpen(false);
     } catch (error) {
       setDraftError(error?.message || "Unable to delete draft application.");
     } finally {
@@ -279,18 +297,26 @@ function ApplicationCard({ application, onDeleteDraft }) {
   };
 
   return (
-    <div className="bg-white rounded-lg border border-slate-200 p-6 hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between mb-4">
+    <div id={`application-${application.id}`} className="bg-white rounded-lg border border-slate-200 p-4 transition-shadow hover:shadow-md sm:p-6">
+      <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-4 flex-1">
-          <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center">
-            <FileText className="w-6 h-6 text-slate-600" />
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100">
+            {application.universityLogo ? (
+              <img
+                src={application.universityLogo}
+                alt={`${application.university} logo`}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <School className="h-6 w-6 text-slate-600" />
+            )}
           </div>
           <div className="flex-1">
             <h3 className="text-slate-900 mb-1">{application.university}</h3>
             <p className="text-slate-600 mb-2">{application.program}</p>
-            <div className="flex items-center gap-4 text-sm text-slate-500">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
               <span>Applied: {application.appliedDate}</span>
-              <span>|</span>
+              <span className="hidden sm:inline">|</span>
               <span>ID: {application.applicationCode}</span>
             </div>
           </div>
@@ -302,13 +328,13 @@ function ApplicationCard({ application, onDeleteDraft }) {
       </div>
 
       <div className="border-t border-slate-200 pt-4 mt-4">
-        <div className="flex items-center justify-between mb-3">
+        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <span className="text-sm text-slate-600">Application Progress</span>
           <span className="text-sm text-slate-500">Last updated: {application.lastUpdate}</span>
         </div>
 
-        <div className="relative">
-          <div className="flex justify-between items-center">
+        <div className="relative overflow-x-auto pb-1">
+          <div className="flex min-w-[560px] items-center justify-between">
             <TimelineStep label="Payment" completed={application.paymentStatus === "paid"} />
             <TimelineStep label="Submitted" completed={application.status !== "not-submitted"} />
             <TimelineStep
@@ -327,7 +353,14 @@ function ApplicationCard({ application, onDeleteDraft }) {
         </div>
       </div>
 
-      <div className="flex gap-3 mt-4 pt-4 border-t border-slate-200">
+      {application.status === "finalized" && application.eligibleForAdmissionLetter === false ? (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Finalized without admission letter eligibility. Your university finalized the process after
+          assessment, but you were not marked eligible for an admission letter.
+        </div>
+      ) : null}
+
+      <div className="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:flex-wrap">
         {isUnpaidDraft ? (
           <>
             <button
@@ -339,15 +372,15 @@ function ApplicationCard({ application, onDeleteDraft }) {
                   )}&draft=${application.id}`,
                 )
               }
-              className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition-colors"
+              className="rounded-lg bg-sky-600 px-4 py-2 text-white transition-colors hover:bg-sky-700"
             >
               View / Edit Draft
             </button>
             <button
               type="button"
-              onClick={handleDeleteDraft}
+              onClick={() => setDeleteDialogOpen(true)}
               disabled={isDeleting}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-70"
+              className="rounded-lg bg-red-600 px-4 py-2 text-white transition-colors hover:bg-red-700 disabled:opacity-70"
             >
               {isDeleting ? "Deleting..." : "Delete Draft"}
             </button>
@@ -356,7 +389,7 @@ function ApplicationCard({ application, onDeleteDraft }) {
               onClick={() =>
                 navigate(`/student/apply/${application.universityId}/payment/${application.id}`)
               }
-              className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
+              className="rounded-lg bg-amber-500 px-4 py-2 text-white transition-colors hover:bg-amber-600"
             >
               Resume Unpaid Draft
             </button>
@@ -366,7 +399,7 @@ function ApplicationCard({ application, onDeleteDraft }) {
           type="button"
           onClick={downloadApplicationPdf}
           disabled={isDownloading}
-          className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors flex items-center gap-2"
+          className="flex items-center justify-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-slate-700 transition-colors hover:bg-slate-200 sm:ml-auto"
         >
           <Download className="w-4 h-4" />
           {isDownloading ? "Downloading..." : "Download Application"}
@@ -390,7 +423,7 @@ function ApplicationCard({ application, onDeleteDraft }) {
               })
             }
             disabled={isDownloading}
-            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-white transition-colors hover:bg-emerald-700"
           >
             Download Roll Number Slip
           </button>
@@ -414,7 +447,7 @@ function ApplicationCard({ application, onDeleteDraft }) {
               })
             }
             disabled={isDownloading}
-            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-white transition-colors hover:bg-emerald-700"
           >
             Download Admission Letter
           </button>
@@ -425,6 +458,15 @@ function ApplicationCard({ application, onDeleteDraft }) {
           {draftError}
         </p>
       ) : null}
+      <ConfirmDialog
+        open={isDeleteDialogOpen}
+        title="Delete draft?"
+        description="This unpaid application draft will be removed from your applications list."
+        confirmLabel="Delete Draft"
+        isLoading={isDeleting}
+        onConfirm={handleDeleteDraft}
+        onCancel={() => setDeleteDialogOpen(false)}
+      />
     </div>
   );
 }

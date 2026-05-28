@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { getFileNameFromPath, readFileAsDataUrl } from "../../lib/fileDataUrl";
+import { isPdfFile, isValidRollNumber } from "../../lib/validation";
 import { onDataUpdated } from "../../lib/socketClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
@@ -32,6 +34,7 @@ function RollNumberManagement() {
   const [selectedApplicationId, setSelectedApplicationId] = useState("");
   const [formData, setFormData] = useState(initialFormState);
   const [formError, setFormError] = useState("");
+  const [isConfirmOpen, setConfirmOpen] = useState(false);
   const isSaving = Boolean(selectedApplicationId) && savingId === selectedApplicationId;
 
   useEffect(() => {
@@ -95,6 +98,7 @@ function RollNumberManagement() {
       eligibleForAdmissionLetter: Boolean(application.eligibleForAdmissionLetter),
     });
     setFormError("");
+    setConfirmOpen(false);
     setShowForm(true);
   };
 
@@ -102,6 +106,7 @@ function RollNumberManagement() {
     setSelectedApplicationId("");
     setFormData(initialFormState);
     setFormError("");
+    setConfirmOpen(false);
     setShowForm(false);
   };
 
@@ -110,6 +115,23 @@ function RollNumberManagement() {
     if (!selectedApplicationId) return;
 
     setFormError("");
+
+    if (!isValidRollNumber(formData.number)) {
+      setFormError("Enter a valid roll number using letters, numbers, slashes, or hyphens.");
+      return;
+    }
+
+    if (!formData.slipFileUrl) {
+      setFormError("Upload a PDF roll number slip before saving.");
+      return;
+    }
+
+    setConfirmOpen(true);
+  };
+
+  const saveRollNumber = async () => {
+    if (!selectedApplicationId) return;
+    setConfirmOpen(false);
 
     try {
       await dispatch(
@@ -130,6 +152,11 @@ function RollNumberManagement() {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    if (!isPdfFile(file)) {
+      setFormError("Roll number slip must be uploaded as a PDF file.");
+      return;
+    }
+
     try {
       const dataUrl = await readFileAsDataUrl(file);
       setFormData((previous) => ({
@@ -146,11 +173,11 @@ function RollNumberManagement() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-slate-900 mb-2">Roll Number Management</h1>
-        <p className="text-slate-600">Assign roll numbers and slip links for accepted students.</p>
+        <h1 className="uaams-page-title">Roll Number Management</h1>
+        <p className="uaams-page-description">Assign roll numbers and PDF slips for accepted students.</p>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-4">
+      <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Total Applications" value={stats.total} />
         <StatCard label="Roll Numbers Assigned" value={stats.assigned} />
         <StatCard label="Pending Assignment" value={stats.pending} />
@@ -212,8 +239,8 @@ function RollNumberManagement() {
         <div className="space-y-4">
           {filteredApplications.map((application) => (
             <article key={application.id} className="rounded-lg border border-slate-200 bg-white p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
                   <h3 className="text-slate-900">{application.studentName}</h3>
                   <p className="text-sm text-slate-600">{application.email}</p>
                   <p className="text-xs text-slate-500 mt-1">
@@ -235,23 +262,23 @@ function RollNumberManagement() {
                         : "Not Eligible for Admission Letter"}
                     </span>
                   </p>
-                  {application.rollNumber.slipFileUrl ? (
-                    <a
-                      href={application.rollNumber.slipFileUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-2 inline-flex text-xs text-blue-600 hover:text-blue-700"
-                    >
-                      Open Slip
-                    </a>
-                  ) : null}
                   {application.rollNumber.slipFileName ? (
                     <p className="mt-1 text-xs text-slate-500">
                       File: {application.rollNumber.slipFileName}
                     </p>
                   ) : null}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {application.rollNumber.slipFileUrl ? (
+                    <a
+                      href={application.rollNumber.slipFileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex rounded-lg border border-blue-200 px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                    >
+                      Open Slip
+                    </a>
+                  ) : null}
                   <span
                     className={`rounded-full px-2 py-1 text-xs ${
                       application.rollNumber.assigned
@@ -277,7 +304,7 @@ function RollNumberManagement() {
       ) : null}
 
       {showForm && selectedApplication ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="uaams-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-lg rounded-xl bg-white p-6">
             <h2 className="text-slate-900 mb-2">Assign Roll Number</h2>
             <p className="text-sm text-slate-600 mb-4">
@@ -299,10 +326,10 @@ function RollNumberManagement() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm text-slate-700">Upload Roll Number Slip (PDF/Image)</label>
+                <label className="mb-1 block text-sm text-slate-700">Upload Roll Number Slip (PDF only)</label>
                 <input
                   type="file"
-                  accept=".pdf,.png,.jpg,.jpeg"
+                  accept=".pdf"
                   onChange={handleSlipFileChange}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
@@ -335,7 +362,7 @@ function RollNumberManagement() {
                 </p>
               ) : null}
 
-              <div className="flex justify-end gap-3 border-t border-slate-200 pt-4">
+              <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
                 <button
                   type="button"
                   onClick={closeAssignForm}
@@ -353,6 +380,16 @@ function RollNumberManagement() {
               </div>
             </form>
           </div>
+          <ConfirmDialog
+            open={isConfirmOpen}
+            title="Save roll number?"
+            description="This will update the student's roll number record and PDF slip."
+            confirmLabel="Save Roll Number"
+            tone="success"
+            isLoading={isSaving}
+            onConfirm={saveRollNumber}
+            onCancel={() => setConfirmOpen(false)}
+          />
         </div>
       ) : null}
     </div>

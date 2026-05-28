@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { KeyRound } from "lucide-react";
 import { PasswordField } from "../shared/PasswordField";
 import { DashboardPageShell } from "../../pages/shared/DashboardPageShell";
+import { isStrongPassword } from "../../lib/validation";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
   changeBloggerPassword,
@@ -23,6 +24,7 @@ function BloggerPasswordSettings() {
   } = useAppSelector((state) => state.bloggerAccount);
 
   const [passwordData, setPasswordData] = useState(initialPasswordState);
+  const [localError, setLocalError] = useState("");
 
   useEffect(() => {
     dispatch(clearBloggerPasswordMessages());
@@ -36,11 +38,26 @@ function BloggerPasswordSettings() {
     if (error || message) {
       dispatch(clearBloggerPasswordMessages());
     }
+    setLocalError("");
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     dispatch(clearBloggerPasswordMessages());
+    setLocalError("");
+
+    if (!isStrongPassword(passwordData.newPassword)) {
+      setLocalError(
+        "New password must be at least 8 characters and include uppercase, lowercase, number, and special character.",
+      );
+      return;
+    }
+
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      setLocalError("New password and confirmation do not match.");
+      return;
+    }
+
     try {
       await dispatch(changeBloggerPassword(passwordData)).unwrap();
       setPasswordData(initialPasswordState);
@@ -52,7 +69,7 @@ function BloggerPasswordSettings() {
       title="Change Password"
       subtitle="Update your blogger account password."
     >
-      <div className="max-w-xl rounded-lg border border-slate-200 bg-white p-6">
+      <div className="max-w-xl rounded-lg border border-slate-200 bg-white p-4 sm:p-6">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="mb-2 block text-sm text-slate-700">Current Password</label>
@@ -88,6 +105,11 @@ function BloggerPasswordSettings() {
             />
           </div>
 
+          {localError ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {localError}
+            </p>
+          ) : null}
           {error ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {error}

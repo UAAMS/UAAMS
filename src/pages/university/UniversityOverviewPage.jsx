@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -12,8 +14,16 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { DashboardDateFilter } from "../shared/DashboardDateFilter";
 import { DashboardPageShell } from "../shared/DashboardPageShell";
 import { MetricGrid } from "../shared/MetricGrid";
+import {
+  buildTimeSeries,
+  countByStatuses,
+  defaultDashboardDateFilter,
+  filterItemsByDate,
+  isDateFilterActive,
+} from "../shared/dashboardAnalytics";
 import { onDataUpdated } from "../../lib/socketClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { fetchUniversityApplications } from "../../store/slices/applicationsSlice";
@@ -47,6 +57,7 @@ export const UniversityOverviewPage = () => {
   const profile = dashboardData?.profile || null;
   const announcementsCount = Number(dashboardData?.metrics?.publishedAnnouncements || 0);
   const [activeMetricLabel, setActiveMetricLabel] = useState("");
+  const [dateFilter, setDateFilter] = useState(defaultDashboardDateFilter);
   const isLoading =
     (applicationsLoading || dashboardLoading) &&
     applications.length === 0 &&
@@ -65,10 +76,16 @@ export const UniversityOverviewPage = () => {
     return () => unsubscribe();
   }, [dispatch]);
 
+  const filteredApplications = useMemo(
+    () => filterItemsByDate(applications, dateFilter, ["createdAt", "appliedAt"]),
+    [applications, dateFilter],
+  );
+  const hasActiveDateFilter = isDateFilterActive(dateFilter);
+
   const metrics = useMemo(() => {
-    const pending = applications.filter((item) => item.status === "pending").length;
-    const underReview = applications.filter((item) => item.status === "under-review").length;
-    const accepted = applications.filter((item) =>
+    const pending = filteredApplications.filter((item) => item.status === "pending").length;
+    const underReview = filteredApplications.filter((item) => item.status === "under-review").length;
+    const accepted = filteredApplications.filter((item) =>
       ["accepted", "assigned", "finalized"].includes(item.status),
     ).length;
     const activePrograms = Number(
@@ -79,7 +96,7 @@ export const UniversityOverviewPage = () => {
     return [
       {
         label: "Total Applications",
-        value: String(Number(dashboardData?.metrics?.totalApplications || applications.length)),
+        value: String(Number(filteredApplications.length)),
         trend: `${pending + underReview} pending review`,
       },
       {
@@ -100,9 +117,8 @@ export const UniversityOverviewPage = () => {
     ];
   }, [
     announcementsCount,
-    applications,
+    filteredApplications,
     dashboardData?.metrics?.activePrograms,
-    dashboardData?.metrics?.totalApplications,
     profile?.applicationFee,
     profile?.programs,
     profile?.totalPrograms,
@@ -115,6 +131,12 @@ export const UniversityOverviewPage = () => {
   }, [metrics, activeMetricLabel]);
 
   const recentApplications = useMemo(() => {
+    if (hasActiveDateFilter) {
+      return filteredApplications
+        .slice()
+        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+        .slice(0, 5);
+    }
     const recentFromDashboard = Array.isArray(dashboardData?.recentApplications)
       ? dashboardData.recentApplications
       : [];
@@ -125,11 +147,11 @@ export const UniversityOverviewPage = () => {
       .slice()
       .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
       .slice(0, 5);
-  }, [applications, dashboardData?.recentApplications]);
+  }, [applications, dashboardData?.recentApplications, filteredApplications, hasActiveDateFilter]);
 
   const applicationsByProgram = useMemo(() => {
     const map = new Map();
-    applications.forEach((application) => {
+    filteredApplications.forEach((application) => {
       const program = application.program || "Unspecified";
       map.set(program, (map.get(program) || 0) + 1);
     });
@@ -137,24 +159,33 @@ export const UniversityOverviewPage = () => {
       .map(([program, count]) => ({ program, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 8);
-  }, [applications]);
+  }, [filteredApplications]);
 
   const statusChartData = useMemo(() => {
     const statuses = ["pending", "under-review", "accepted", "rejected", "assigned", "finalized"];
-    return statuses.map((status) => ({
-      name: status.replace("-", " "),
-      value: applications.filter((item) => item.status === status).length,
-    }));
-  }, [applications]);
+    return countByStatuses({ items: filteredApplications, statuses });
+  }, [filteredApplications]);
+
+  const timelineData = useMemo(
+    () =>
+      buildTimeSeries({
+        items: filteredApplications,
+        filter: dateFilter,
+        dateFields: ["createdAt", "appliedAt"],
+        labelKey: "period",
+        valueKey: "applications",
+      }),
+    [dateFilter, filteredApplications],
+  );
 
   const selectedMetricChartData = useMemo(() => {
-    const accepted = applications.filter((item) =>
+    const accepted = filteredApplications.filter((item) =>
       ["accepted", "assigned", "finalized"].includes(item.status),
     ).length;
-    const inReview = applications.filter((item) =>
+    const inReview = filteredApplications.filter((item) =>
       ["pending", "under-review"].includes(item.status),
     ).length;
-    const rejected = applications.filter((item) => item.status === "rejected").length;
+    const rejected = filteredApplications.filter((item) => item.status === "rejected").length;
     const activePrograms = Number(
       dashboardData?.metrics?.activePrograms ||
         (Array.isArray(profile?.programs) ? profile.programs.length : profile?.totalPrograms || 0),
@@ -172,12 +203,12 @@ export const UniversityOverviewPage = () => {
       case "Announcements":
         return [
           { state: "Announcements", value: announcementsCount },
-          { state: "Applications", value: applications.length },
+          { state: "Applications", value: filteredApplications.length },
         ];
       case "Programs Active":
         return [
           { state: "Programs", value: activePrograms },
-          { state: "Applications", value: applications.length },
+          { state: "Applications", value: filteredApplications.length },
         ];
       default:
         return [];
@@ -185,7 +216,7 @@ export const UniversityOverviewPage = () => {
   }, [
     activeMetricLabel,
     announcementsCount,
-    applications,
+    filteredApplications,
     dashboardData?.metrics?.activePrograms,
     profile?.programs,
     profile?.totalPrograms,
@@ -203,6 +234,8 @@ export const UniversityOverviewPage = () => {
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
       ) : null}
 
+      <DashboardDateFilter value={dateFilter} onChange={setDateFilter} theme="blue" />
+
       {isLoading ? (
         <div className="rounded-lg border border-slate-200 bg-white px-4 py-6 text-sm text-slate-600">
           Loading dashboard metrics...
@@ -216,14 +249,14 @@ export const UniversityOverviewPage = () => {
       )}
 
       {!isLoading && selectedMetricChartData.length > 0 ? (
-        <article className="uaams-chart-card rounded-xl p-5">
+        <article className="uaams-chart-card rounded-xl p-4 sm:p-5">
           <h3 className="font-display mb-2 text-slate-900">{activeMetricLabel} State Graph</h3>
           <p className="mb-4 text-xs text-slate-500">Click a metric card to switch this graph.</p>
-          <div className="h-64">
+          <div className="uaams-chart-frame">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={selectedMetricChartData}>
+              <BarChart data={selectedMetricChartData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="state" tick={{ fontSize: 12 }} />
+                <XAxis dataKey="state" tick={{ fontSize: 12 }} interval="preserveStartEnd" />
                 <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
                 <Tooltip />
                 <Bar dataKey="value" fill="#2563eb" radius={[6, 6, 0, 0]} />
@@ -233,14 +266,14 @@ export const UniversityOverviewPage = () => {
         </article>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <div className="uaams-chart-card rounded-xl p-5">
+      <div className="grid gap-6 xl:grid-cols-3">
+        <div className="uaams-chart-card rounded-xl p-4 sm:p-5">
           <h3 className="font-display mb-4 text-slate-900">Applications by Program (Realtime)</h3>
-          <div className="h-72">
+          <div className="uaams-chart-frame uaams-chart-frame--tall">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={applicationsByProgram}>
+              <BarChart data={applicationsByProgram} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="program" tick={{ fontSize: 12 }} />
+                <XAxis dataKey="program" tick={{ fontSize: 12 }} interval="preserveStartEnd" />
                 <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
                 <Tooltip />
                 <Bar dataKey="count" fill="#2563eb" radius={[6, 6, 0, 0]} />
@@ -249,19 +282,19 @@ export const UniversityOverviewPage = () => {
           </div>
         </div>
 
-        <div className="uaams-chart-card rounded-xl p-5">
+        <div className="uaams-chart-card rounded-xl p-4 sm:p-5">
           <h3 className="font-display mb-4 text-slate-900">Application Status Split</h3>
-          <div className="h-72">
+          <div className="uaams-chart-frame uaams-chart-frame--tall">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={statusChartData}
                   cx="50%"
                   cy="50%"
-                  outerRadius={100}
+                  outerRadius="70%"
                   dataKey="value"
                   nameKey="name"
-                  label
+                  label={false}
                 >
                   {statusChartData.map((item, index) => (
                     <Cell key={`${item.name}-${index}`} fill={statusColors[index % statusColors.length]} />
@@ -269,6 +302,33 @@ export const UniversityOverviewPage = () => {
                 </Pie>
                 <Tooltip />
               </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="uaams-chart-card rounded-xl p-4 sm:p-5">
+          <h3 className="font-display mb-4 text-slate-900">Application State</h3>
+          <div className="uaams-chart-frame uaams-chart-frame--tall">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={timelineData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="universityApplicationsArea" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#2563eb" stopOpacity={0.55} />
+                    <stop offset="100%" stopColor="#2563eb" stopOpacity={0.08} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="period" tick={{ fontSize: 12 }} interval="preserveStartEnd" />
+                <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                <Tooltip />
+                <Area
+                  type="monotone"
+                  dataKey="applications"
+                  stroke="#2563eb"
+                  fill="url(#universityApplicationsArea)"
+                  strokeWidth={2}
+                />
+              </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -318,7 +378,7 @@ export const UniversityOverviewPage = () => {
                     <div
                       className="h-2 rounded-full bg-blue-500"
                       style={{
-                        width: `${Math.max(8, Math.round((item.count / Math.max(applications.length, 1)) * 100))}%`,
+                        width: `${Math.max(8, Math.round((item.count / Math.max(filteredApplications.length, 1)) * 100))}%`,
                       }}
                     />
                   </div>
@@ -355,12 +415,14 @@ export const UniversityOverviewPage = () => {
 
 function ActionCard({ title, description, buttonText, onClick }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-6 transition-all hover:-translate-y-1 hover:shadow-md">
-      <h3 className="font-display mb-2 text-slate-900">{title}</h3>
-      <p className="text-slate-600 text-sm mb-4">{description}</p>
+    <div className="flex h-full flex-col rounded-lg border border-slate-200 bg-white p-6 transition-all hover:-translate-y-1 hover:shadow-md">
+      <div>
+        <h3 className="font-display mb-2 text-slate-900">{title}</h3>
+        <p className="mb-4 text-sm text-slate-600">{description}</p>
+      </div>
       <button
         onClick={onClick}
-        className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+        className="mt-auto w-full rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
       >
         {buttonText}
       </button>

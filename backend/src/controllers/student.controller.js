@@ -9,8 +9,8 @@ const { getCache, setCache } = require("../utils/cacheClient");
 const { persistMaybeDataUrl } = require("../utils/fileStorage");
 const { ROLES, UNIVERSITY_APPROVAL, USER_STATUS } = require("../constants/roles");
 
-const UNIVERSITY_RECOMMENDATION_DATASET_CACHE_KEY = "recommendations:universities:dataset:v1";
-const SNAPSHOT_CACHE_VERSION = 2;
+const UNIVERSITY_RECOMMENDATION_DATASET_CACHE_KEY = "recommendations:universities:dataset:v2";
+const SNAPSHOT_CACHE_VERSION = 3;
 
 const formatReadableDate = (value) => {
   if (!value) return "Not announced";
@@ -21,6 +21,14 @@ const formatReadableDate = (value) => {
     month: "long",
     day: "numeric",
   });
+};
+
+const hasDeadlinePassed = (value) => {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  date.setHours(23, 59, 59, 999);
+  return date.getTime() < Date.now();
 };
 
 const normalizeStringArray = (value) =>
@@ -159,7 +167,9 @@ const loadUniversityRecommendationDataset = async () => {
   const profiles = await UniversityProfile.find({
     university: { $in: universityIds },
   })
-    .select("university universityName city type applicationFee applicationEndDate programs")
+    .select(
+      "university universityName city type applicationFee applicationEndDate programs logo representativeName representativeProfilePicture"
+    )
     .lean();
 
   const profileLookup = Object.fromEntries(
@@ -287,7 +297,7 @@ const getRecommendations = asyncHandler(async (req, res) => {
               feeRange: String(item?.feeRange || "").trim(),
               seats: Number(item?.seats || 0),
               deadlineDate: item?.deadlineDate || null,
-              isAdmissionOpen: item?.isAdmissionOpen !== false,
+            isAdmissionOpen: item?.isAdmissionOpen !== false && !hasDeadlinePassed(item?.deadlineDate),
             }))
           : parsedProgramsFromRegistration.map((name) => ({
               name,
@@ -334,7 +344,7 @@ const getRecommendations = asyncHandler(async (req, res) => {
             matchScore: Math.max(0, Math.min(100, Math.round(matchScore))),
             deadlineDate: program.deadlineDate || null,
             deadline: formatReadableDate(program.deadlineDate),
-            isAdmissionOpen: program.isAdmissionOpen !== false,
+            isAdmissionOpen: program.isAdmissionOpen !== false && !hasDeadlinePassed(program.deadlineDate),
           };
         })
         .sort((a, b) => b.matchScore - a.matchScore);
@@ -373,6 +383,9 @@ const getRecommendations = asyncHandler(async (req, res) => {
         matchScore,
         type: profile?.type || "public",
         applicationFee: Number(profile?.applicationFee || 0),
+        logo: profile?.logo || "",
+        representativeName: profile?.representativeName || "",
+        representativeProfilePicture: profile?.representativeProfilePicture || "",
       };
     })
     .filter(Boolean);

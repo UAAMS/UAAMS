@@ -85,6 +85,7 @@ const run = async () => {
     email: "admin@uaams.com",
     password: "admin123",
     role: ROLES.ADMIN,
+    emailVerified: true,
     approvalStatus: UNIVERSITY_APPROVAL.APPROVED,
     status: USER_STATUS.ACTIVE,
   });
@@ -94,6 +95,7 @@ const run = async () => {
     email: "student@uaams.com",
     password: "student123",
     role: ROLES.STUDENT,
+    emailVerified: true,
     approvalStatus: UNIVERSITY_APPROVAL.APPROVED,
     status: USER_STATUS.ACTIVE,
   });
@@ -116,6 +118,7 @@ const run = async () => {
     email: "university@uaams.com",
     password: "university123",
     role: ROLES.UNIVERSITY,
+    emailVerified: true,
     approvalStatus: UNIVERSITY_APPROVAL.APPROVED,
     status: USER_STATUS.ACTIVE,
     location: "Islamabad",
@@ -167,6 +170,7 @@ const run = async () => {
     username: "campus_writer",
     password: "blogger123",
     role: ROLES.BLOGGER,
+    emailVerified: true,
     approvalStatus: UNIVERSITY_APPROVAL.APPROVED,
     status: USER_STATUS.ACTIVE,
     managedUniversity: university._id,

@@ -10,7 +10,7 @@ export const RoleRoute = ({ allowedRoles = [] }) => {
   }
 
   if (!allowedRoles.includes(currentUser.role)) {
-    return <Navigate to="/unauthorized" replace />;
+    return <Navigate to="/unauthorized" replace state={{ from: location }} />;
   }
 
   return <Outlet />;

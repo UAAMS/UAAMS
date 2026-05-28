@@ -60,6 +60,11 @@ const userSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    profilePicture: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     location: {
       type: String,
       trim: true,
@@ -97,7 +102,7 @@ const userSchema = new mongoose.Schema(
     },
     emailVerified: {
       type: Boolean,
-      default: true,
+      default: false,
       index: true,
     },
     emailVerificationTokenHash: {
@@ -160,6 +165,7 @@ userSchema.methods.toSafeObject = function toSafeObject() {
     status: this.status,
     representativeName: this.representativeName,
     phone: this.phone,
+    profilePicture: this.profilePicture,
     location: this.location,
     website: this.website,
     establishedYear: this.establishedYear,

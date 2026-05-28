@@ -73,6 +73,7 @@ const universityProfileSchema = new mongoose.Schema(
     representativePosition: { type: String, default: "" },
     representativeEmail: { type: String, default: "" },
     representativePhone: { type: String, default: "" },
+    representativeProfilePicture: { type: String, default: "" },
     logo: { type: String, default: "" },
     applicationFee: { type: Number, default: 0, min: 0 },
     applicationStartDate: { type: Date, default: null },
