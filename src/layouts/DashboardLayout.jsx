@@ -1,9 +1,15 @@
-import { Bell, LogOut, Menu, X } from "lucide-react";
+import { Bell, LogOut, Menu, X, GraduationCap } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Avatar } from "../components/shared/Avatar";
+import { ConfirmDialog } from "../components/shared/ConfirmDialog";
 import { useAuth } from "../context/AuthContext";
-import { useUI } from "../context/UIContext";
 import { onDataUpdated } from "../lib/socketClient";
+import { useAppDispatch, useAppSelector } from "../store/hooks";
+import { fetchAdminProfile } from "../store/slices/adminAccountSlice";
+import { fetchBloggerProfile } from "../store/slices/bloggerAccountSlice";
+import { fetchStudentProfile } from "../store/slices/studentProfileSlice";
+import { fetchUniversitySettings } from "../store/slices/universityAccountSlice";
 import "../styles/dashboard-layout.css";
 
 const STUDENT_NOTIFICATION_KEY = "uaams_student_notifications";
@@ -125,12 +131,18 @@ const formatNotificationTime = (value) => {
 };
 
 export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
+  const dispatch = useAppDispatch();
   const [isNotificationOpen, setNotificationOpen] = useState(false);
   const [studentNotifications, setStudentNotifications] = useState([]);
   const location = useLocation();
   const { currentUser, logout } = useAuth();
-  const { layout, setLayoutValue } = useUI();
-  const isSidebarOpen = Boolean(layout?.dashboardSidebarOpen);
+  const adminProfileState = useAppSelector((state) => state.adminAccount);
+  const studentProfileState = useAppSelector((state) => state.studentProfile);
+  const universitySettingsState = useAppSelector((state) => state.universityAccount.settings);
+  const bloggerProfileState = useAppSelector((state) => state.bloggerAccount);
+  // mobile drawer state (desktop sidebar remains persistent)
+  const [isMobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [hasRequestedUniversitySettings, setHasRequestedUniversitySettings] = useState(false);
 
   const themeClasses = useMemo(() => {
     const palettes = {
@@ -163,15 +175,61 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
     return palettes[theme] || palettes.emerald;
   }, [theme]);
 
+  const brandClasses = useMemo(() => {
+    const map = {
+      emerald: { text: "text-emerald-700", circleBg: "bg-emerald-600" },
+      blue: { text: "text-blue-700", circleBg: "bg-blue-600" },
+      purple: { text: "text-purple-700", circleBg: "bg-purple-600" },
+      indigo: { text: "text-indigo-700", circleBg: "bg-indigo-600" },
+    };
+
+    return map[theme] || map.emerald;
+  }, [theme]);
+
   useEffect(() => {
     if (currentUser?.role === "student") {
       setStudentNotifications(loadStudentNotifications());
+      setHasRequestedUniversitySettings(false);
+      if (!studentProfileState.loaded && !studentProfileState.loading) {
+        dispatch(fetchStudentProfile());
+      }
       return;
+    }
+
+    if (currentUser?.role === "university" && !hasRequestedUniversitySettings) {
+      setHasRequestedUniversitySettings(true);
+      dispatch(fetchUniversitySettings());
+    }
+
+    if (currentUser?.role !== "university" && hasRequestedUniversitySettings) {
+      setHasRequestedUniversitySettings(false);
+    }
+
+    if (
+      currentUser?.role === "blogger" &&
+      !bloggerProfileState.profileLoaded &&
+      !bloggerProfileState.profileLoading
+    ) {
+      dispatch(fetchBloggerProfile());
+    }
+
+    if (currentUser?.role === "admin" && !adminProfileState.loaded && !adminProfileState.loading) {
+      dispatch(fetchAdminProfile());
     }
 
     setStudentNotifications([]);
     setNotificationOpen(false);
-  }, [currentUser?.role]);
+  }, [
+    adminProfileState.loaded,
+    adminProfileState.loading,
+    bloggerProfileState.profileLoaded,
+    bloggerProfileState.profileLoading,
+    currentUser?.role,
+    dispatch,
+    hasRequestedUniversitySettings,
+    studentProfileState.loaded,
+    studentProfileState.loading,
+  ]);
 
   useEffect(() => {
     setNotificationOpen(false);
@@ -201,6 +259,8 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
     [studentNotifications],
   );
 
+  const [isLogoutDialogOpen, setLogoutDialogOpen] = useState(false);
+
   const markAllNotificationsRead = () => {
     setStudentNotifications((previous) => {
       const next = previous.map((notification) => ({
@@ -212,55 +272,145 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
     });
   };
 
+  const markNotificationRead = (notificationId) => {
+    setStudentNotifications((previous) => {
+      const next = previous.map((notification) =>
+        notification.id === notificationId ? { ...notification, read: true } : notification,
+      );
+      saveStudentNotifications(next);
+      return next;
+    });
+  };
+
+  const clearNotification = (notificationId) => {
+    setStudentNotifications((previous) => {
+      const next = previous.filter((notification) => notification.id !== notificationId);
+      saveStudentNotifications(next);
+      return next;
+    });
+  };
+
+  const headerProfileImage = useMemo(() => {
+    if (currentUser?.role === "student") {
+      return studentProfileState.profile?.profilePicture || currentUser?.profilePicture || "";
+    }
+
+    if (currentUser?.role === "university") {
+      return (
+        universitySettingsState.data?.representativeProfilePicture ||
+        currentUser?.representativeProfilePicture ||
+        universitySettingsState.data?.logo ||
+        currentUser?.logo ||
+        currentUser?.profilePicture ||
+        ""
+      );
+    }
+
+    if (currentUser?.role === "blogger") {
+      return bloggerProfileState.profile?.profilePicture || currentUser?.profilePicture || "";
+    }
+
+    if (currentUser?.role === "admin") {
+      return adminProfileState.profile?.profilePicture || currentUser?.profilePicture || "";
+    }
+
+    return currentUser?.profilePicture || "";
+  }, [
+    adminProfileState.profile?.profilePicture,
+    bloggerProfileState.profile?.profilePicture,
+    currentUser,
+    studentProfileState.profile?.profilePicture,
+    universitySettingsState.data?.logo,
+    universitySettingsState.data?.representativeProfilePicture,
+  ]);
+
   return (
     <div className="min-h-screen bg-slate-100">
       <div className="dashboard-shell">
-        <aside className={`dashboard-sidebar ${isSidebarOpen ? "open" : ""}`}>
-          <div className="mb-6 flex items-center justify-between">
-            <div>
-              <div className="text-slate-900">UAAMS</div>
-              <div className="text-sm text-slate-500">{title}</div>
-            </div>
-            <button
-              onClick={() => setLayoutValue("dashboardSidebarOpen", false)}
-              className="dashboard-close-button rounded-md p-2 text-slate-500 hover:bg-slate-100"
-              aria-label="Close menu"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+        <aside className={`dashboard-sidebar ${isMobileSidebarOpen ? "open-mobile" : ""}`}>
+          <div className="flex min-h-full flex-col">
+            <div className="mb-6 flex flex-col  justify-between">
+              <div className="flex-1 flex flex-col items-start">
+                <div to="/" className={`inline-flex items-center gap-3 text-xs font-semibold uppercase ${brandClasses.text} transition-colors`}>
+                  <div className={`flex h-12 w-12 items-center justify-center rounded-full ${brandClasses.circleBg} text-white`}>
+                    <GraduationCap className="h-7 w-7" />
+                  </div>
+                  <p className={`text-lg font-semibold uppercase sidebar-label ${brandClasses.text}`}>UAAMS</p>
+                </div>
+              </div>
+            <div className="flex-1 flex flex-col items-center">
 
-          <nav className="space-y-1">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              return (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  onClick={() => setLayoutValue("dashboardSidebarOpen", false)}
-                  className={({ isActive }) =>
-                    `flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
-                      isActive
-                        ? `${themeClasses.active} shadow-sm`
-                        : `text-slate-700 ${themeClasses.hover}`
-                    }`
-                  }
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{item.label}</span>
-                </NavLink>
-              );
-            })}
-          </nav>
+                            <div className={`mt-3 text-md text-center sidebar-label ${brandClasses.text} font-semibold`}>{title}</div>
+            </div>
+                          {/* Mobile close control */}
+                          <div className="lg:hidden mt-2">
+                            <button
+                              onClick={() => setMobileSidebarOpen(false)}
+                              className="dashboard-close-button rounded-md p-2 text-slate-500 hover:bg-slate-100"
+                              aria-label="Close menu"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+              
+            </div>
+
+            <nav className="flex-1 space-y-1">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end}
+                    onClick={() => setMobileSidebarOpen(false)}
+                    className={({ isActive }) => {
+                      const isCustomActive = item.activePaths?.some((path) =>
+                        location.pathname.startsWith(path),
+                      );
+
+                      return `flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                        isActive || isCustomActive
+                          ? `${themeClasses.active} shadow-sm`
+                          : `text-slate-700 ${themeClasses.hover}`
+                      }`;
+                    }}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span className="sidebar-label">{item.label}</span>
+                  </NavLink>
+                );
+              })}
+            </nav>
+
+            <div className="mt-6 border-t border-slate-200 pt-4">
+              <button
+                type="button"
+                onClick={() => setLogoutDialogOpen(true)}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-red-600 hover:text-white"
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="sidebar-label">Logout</span>
+              </button>
+            </div>
+          </div>
         </aside>
+
+        {/* Mobile open button */}
+        <button
+          onClick={() => setMobileSidebarOpen(true)}
+          className="dashboard-open-button lg:hidden"
+          aria-label="Open sidebar"
+        >
+          <Menu className="h-4 w-4" />
+        </button>
 
         <div className="dashboard-main flex min-h-screen flex-col">
           <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 px-4 py-4 backdrop-blur-sm sm:px-6 lg:px-8">
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => setLayoutValue("dashboardSidebarOpen", true)}
+                  onClick={() => setMobileSidebarOpen(true)}
                   className="dashboard-menu-button rounded-md p-2 text-slate-600 hover:bg-slate-100"
                   aria-label="Open menu"
                 >
@@ -306,19 +456,45 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
                             {studentNotifications.map((notification) => (
                               <article
                                 key={notification.id}
+                                onClick={() => markNotificationRead(notification.id)}
                                 className={`rounded-lg border px-3 py-2 ${
                                   notification.read
                                     ? "border-slate-200 bg-slate-50"
-                                    : "border-emerald-200 bg-emerald-50"
+                                    : "cursor-pointer border-emerald-200 bg-emerald-50 hover:bg-emerald-100"
                                 }`}
                               >
-                                <div className="text-xs text-slate-900">{notification.title}</div>
-                                <p className="mt-1 text-xs text-slate-600">
-                                  {notification.description}
-                                </p>
-                                <p className="mt-1 text-[11px] text-slate-500">
-                                  {formatNotificationTime(notification.at)}
-                                </p>
+                                <div className="flex items-start justify-between gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      markNotificationRead(notification.id);
+                                    }}
+                                    className="flex-1 text-left"
+                                  >
+                                    <span className="block text-xs text-slate-900">
+                                      {notification.title}
+                                    </span>
+                                    <span className="mt-1 block text-xs text-slate-600">
+                                      {notification.description}
+                                    </span>
+                                    <span className="mt-1 block text-[11px] text-slate-500">
+                                      {formatNotificationTime(notification.at)}
+                                    </span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      clearNotification(notification.id);
+                                    }}
+                                    className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-red-600"
+                                    aria-label={`Clear ${notification.title}`}
+                                    title="Clear notification"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
                               </article>
                             ))}
                           </div>
@@ -328,17 +504,17 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
                   </div>
                 ) : null}
                 <div
-                  className={`rounded-full px-3 py-1 text-xs ring-1 ${themeClasses.badge} ${themeClasses.ring}`}
+                  className={`flex items-center gap-2 rounded-full py-1 pl-1 pr-3 text-xs ring-1 ${themeClasses.badge} ${themeClasses.ring}`}
                 >
+                  <Avatar
+                    src={headerProfileImage}
+                    name={currentUser?.name || "User"}
+                    size="sm"
+                    className="bg-white/80"
+                  />
                   {currentUser?.name || "User"}
                 </div>
-                <button
-                  onClick={logout}
-                  className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100"
-                >
-                  <LogOut className="h-4 w-4" />
-                  Logout
-                </button>
+                
               </div>
             </div>
           </header>
@@ -349,13 +525,23 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
         </div>
       </div>
 
-      {isSidebarOpen && (
+      {isMobileSidebarOpen && (
         <button
           className="dashboard-overlay"
-          onClick={() => setLayoutValue("dashboardSidebarOpen", false)}
+          onClick={() => setMobileSidebarOpen(false)}
           aria-label="Close menu"
         />
       )}
+
+      <ConfirmDialog
+        open={isLogoutDialogOpen}
+        title="Log out?"
+        description="Your current session will close and you will return to the login page."
+        confirmLabel="Log out"
+        tone="danger"
+        onConfirm={logout}
+        onCancel={() => setLogoutDialogOpen(false)}
+      />
     </div>
   );
 };

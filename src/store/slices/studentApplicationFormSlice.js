@@ -22,6 +22,12 @@ const normalizeUniversity = (university = {}) => {
     email: university?.email || university?.profile?.email || "",
     phone: university?.profile?.phone || "",
     address: university?.profile?.address || "",
+    logo: university?.logo || university?.profile?.logo || "",
+    representativeName: university?.representativeName || university?.profile?.representativeName || "",
+    representativeProfilePicture:
+      university?.representativeProfilePicture ||
+      university?.profile?.representativeProfilePicture ||
+      "",
     programs: rawPrograms
       .map((program) => (typeof program === "string" ? program : program?.name || ""))
       .filter(Boolean),

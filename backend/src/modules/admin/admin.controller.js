@@ -10,6 +10,8 @@ const ApiError = require("../../utils/ApiError");
 const asyncHandler = require("../../utils/asyncHandler");
 const getPagination = require("../../utils/pagination");
 const { emitDataUpdate } = require("../../utils/socket");
+const { persistMaybeDataUrl } = require("../../utils/fileStorage");
+const { isValidEmail, isValidName, isValidPhone } = require("../../utils/validators");
 const { invalidateUniversityPublicCache } = require("../../controllers/university.controller");
 const {
   ROLES,
@@ -29,6 +31,85 @@ const ensureObjectId = (id, message = "Invalid resource id.") => {
     throw new ApiError(400, message);
   }
 };
+
+const getMyProfile = asyncHandler(async (req, res) => {
+  const admin = await User.findById(req.user._id).lean();
+  if (!admin) {
+    throw new ApiError(404, "Admin account not found.");
+  }
+
+  return res.status(200).json({
+    success: true,
+    data: { profile: admin },
+  });
+});
+
+const updateMyProfile = asyncHandler(async (req, res) => {
+  const payload = { ...req.body };
+  const allowedFields = ["name", "email", "phone", "location", "profilePicture"];
+  const updates = {};
+
+  allowedFields.forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(payload, field)) {
+      updates[field] = payload[field];
+    }
+  });
+
+  if (Object.prototype.hasOwnProperty.call(updates, "name")) {
+    updates.name = String(updates.name || "").trim();
+    if (!isValidName(updates.name)) {
+      throw new ApiError(400, "Enter a valid admin name.");
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updates, "email")) {
+    const normalizedEmail = String(updates.email || "").trim().toLowerCase();
+    if (!isValidEmail(normalizedEmail)) {
+      throw new ApiError(400, "Enter a valid email address.");
+    }
+
+    const existingEmail = await User.findOne({
+      _id: { $ne: req.user._id },
+      email: normalizedEmail,
+    });
+    if (existingEmail) {
+      throw new ApiError(409, "This email is already in use.");
+    }
+    updates.email = normalizedEmail;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updates, "phone")) {
+    updates.phone = String(updates.phone || "").trim();
+    if (updates.phone && !isValidPhone(updates.phone)) {
+      throw new ApiError(400, "Enter a valid mobile number.");
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updates, "location")) {
+    updates.location = String(updates.location || "").trim();
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updates, "profilePicture")) {
+    updates.profilePicture = await persistMaybeDataUrl({
+      value: updates.profilePicture,
+      folder: `admin-profiles/${String(req.user._id)}`,
+      preferredName: updates.name || "admin-profile",
+    });
+    updates.profilePicture = String(updates.profilePicture || "");
+  }
+
+  const admin = await User.findByIdAndUpdate(
+    req.user._id,
+    { $set: updates },
+    { new: true, runValidators: true },
+  ).lean();
+
+  return res.status(200).json({
+    success: true,
+    message: "Admin profile updated successfully.",
+    data: { profile: admin },
+  });
+});
 
 const ADMIN_APPLICATION_SUMMARY_PROJECTION = [
   "applicationCode",
@@ -637,6 +718,8 @@ const deleteManagedUser = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+  getMyProfile,
+  updateMyProfile,
   getDashboardStats,
   listUniversitiesForAdmin,
   reviewUniversity,

@@ -7,7 +7,14 @@ const publicLinks = [
 
 export const PublicLayout = () => {
   const { pathname } = useLocation();
-  const shouldHideHeader = pathname.startsWith("/login") || pathname.startsWith("/register");
+  const shouldHideHeader = [
+    "/login",
+    "/register",
+    "/forgot-password",
+    "/forgot-password/otp",
+    "/reset-password",
+    "/verify-email",
+  ].some((path) => pathname.startsWith(path));
 
   return (
     <div className="min-h-screen bg-linear-to-br from-emerald-50 via-white to-blue-50">
@@ -37,20 +44,7 @@ export const PublicLayout = () => {
               ))}
             </nav>
 
-            <div className="flex items-center gap-2">
-              <Link
-                to="/login/student"
-                className="rounded-lg px-4 py-2 text-sm text-emerald-700 transition-colors hover:bg-emerald-50"
-              >
-                Login
-              </Link>
-              <Link
-                to="/register/student"
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white transition-colors hover:bg-emerald-700"
-              >
-                Register
-              </Link>
-            </div>
+            <div className="h-10 w-10 md:h-auto md:w-0" aria-hidden="true" />
           </div>
         </header>
       ) : null}

@@ -24,9 +24,16 @@ const normalizePost = (item) => ({
   title: item?.title || "",
   excerpt: item?.excerpt || "",
   content: item?.content || "",
-  author: item?.author?.name || "University Representative",
-  authorTitle: "University Representative",
-  university: item?.university?.name || "University",
+  author: item?.author?.name || item?.universityProfile?.representativeName || "University Representative",
+  authorTitle: item?.author?.role === "blogger" ? "University Blogger" : "University Representative",
+  authorRole: item?.author?.role || "university",
+  authorProfilePicture:
+    item?.author?.profilePicture ||
+    item?.universityProfile?.representativeProfilePicture ||
+    "",
+  university: item?.universityProfile?.universityName || item?.university?.name || "University",
+  universityLogo: item?.universityProfile?.logo || "",
+  representativeProfilePicture: item?.universityProfile?.representativeProfilePicture || "",
   publishDate: formatDate(item?.publishedAt || item?.createdAt),
   readTime: item?.readTime || "1 min",
   category: item?.category || "General",

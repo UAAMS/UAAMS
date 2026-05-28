@@ -63,7 +63,15 @@ const getMyProfile = asyncHandler(async (req, res) => {
 
 const updateMyProfile = asyncHandler(async (req, res) => {
   const payload = { ...req.body };
-  const allowedFields = ["name", "email", "username", "phone", "location", "website"];
+  const allowedFields = [
+    "name",
+    "email",
+    "username",
+    "phone",
+    "location",
+    "website",
+    "profilePicture",
+  ];
   const updates = {};
 
   allowedFields.forEach((field) => {
@@ -118,6 +126,15 @@ const updateMyProfile = asyncHandler(async (req, res) => {
 
   if (Object.prototype.hasOwnProperty.call(updates, "website")) {
     updates.website = String(updates.website || "").trim();
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updates, "profilePicture")) {
+    updates.profilePicture = await persistMaybeDataUrl({
+      value: updates.profilePicture,
+      folder: `blogger-profiles/${String(req.user._id)}`,
+      preferredName: updates.username || updates.name || "blogger-profile",
+    });
+    updates.profilePicture = String(updates.profilePicture || "");
   }
 
   const updated = await User.findByIdAndUpdate(

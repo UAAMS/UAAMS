@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
   deleteAdminUniversity,
@@ -31,6 +32,7 @@ function UniversityManagement() {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [pendingAction, setPendingAction] = useState(null);
   const activeId = mutatingKeys[0] || "";
 
   useEffect(() => {
@@ -64,7 +66,8 @@ function UniversityManagement() {
     }
   };
 
-  const handleToggleUserStatus = async (university) => {
+  const handleToggleUserStatus = async (university = pendingAction?.item) => {
+    if (!university) return;
     const nextStatus = university.status === "active" ? "inactive" : "active";
     try {
       await dispatch(
@@ -73,19 +76,17 @@ function UniversityManagement() {
           status: nextStatus,
         }),
       ).unwrap();
+      setPendingAction(null);
     } catch {
       // Errors are surfaced from Redux state.
     }
   };
 
-  const handleDeleteUniversity = async (university) => {
-    const confirmed = window.confirm(
-      `Delete university "${university.name}"?\nThis will remove related applications, bloggers, programs, and content.`,
-    );
-    if (!confirmed) return;
-
+  const handleDeleteUniversity = async (university = pendingAction?.item) => {
+    if (!university) return;
     try {
       await dispatch(deleteAdminUniversity(university.id)).unwrap();
+      setPendingAction(null);
     } catch {
       // Errors are surfaced from Redux state.
     }
@@ -94,8 +95,8 @@ function UniversityManagement() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-slate-900 mb-2">University Management</h1>
-        <p className="text-slate-600">Review university approvals and platform status.</p>
+        <h1 className="uaams-page-title">University Management</h1>
+        <p className="uaams-page-description">Review university approvals and platform status.</p>
       </div>
 
       <div className="grid md:grid-cols-4 gap-4">
@@ -210,7 +211,7 @@ function UniversityManagement() {
 
                 <button
                   type="button"
-                  onClick={() => handleToggleUserStatus(university)}
+                  onClick={() => setPendingAction({ type: "status", item: university })}
                   disabled={Boolean(activeId)}
                   className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-70"
                 >
@@ -218,7 +219,7 @@ function UniversityManagement() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleDeleteUniversity(university)}
+                  onClick={() => setPendingAction({ type: "delete", item: university })}
                   disabled={Boolean(activeId)}
                   className="rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 disabled:opacity-70"
                 >
@@ -229,6 +230,24 @@ function UniversityManagement() {
           ))}
         </div>
       ) : null}
+      <ConfirmDialog
+        open={Boolean(pendingAction)}
+        title={pendingAction?.type === "delete" ? "Delete university?" : "Change university status?"}
+        description={
+          pendingAction?.type === "delete"
+            ? `This will remove ${pendingAction?.item?.name || "this university"} and related records.`
+            : `Set ${pendingAction?.item?.name || "this university"} to ${
+                pendingAction?.item?.status === "active" ? "inactive" : "active"
+              }.`
+        }
+        confirmLabel={pendingAction?.type === "delete" ? "Delete University" : "Update Status"}
+        tone={pendingAction?.type === "delete" ? "danger" : "success"}
+        isLoading={Boolean(activeId)}
+        onConfirm={() =>
+          pendingAction?.type === "delete" ? handleDeleteUniversity() : handleToggleUserStatus()
+        }
+        onCancel={() => setPendingAction(null)}
+      />
     </div>
   );
 }

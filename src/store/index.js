@@ -1,5 +1,6 @@
 import { configureStore } from "@reduxjs/toolkit";
 import applicationsReducer from "./slices/applicationsSlice";
+import adminAccountReducer from "./slices/adminAccountSlice";
 import adminUsersManagementReducer from "./slices/adminUsersManagementSlice";
 import adminUniversityManagementReducer from "./slices/adminUniversityManagementSlice";
 import announcementsReducer from "./slices/announcementsSlice";
@@ -23,6 +24,7 @@ import universitiesReducer from "./slices/universitiesSlice";
 
 export const store = configureStore({
   reducer: {
+    adminAccount: adminAccountReducer,
     studentProfile: studentProfileReducer,
     applications: applicationsReducer,
     announcements: announcementsReducer,

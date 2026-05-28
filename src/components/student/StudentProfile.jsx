@@ -15,6 +15,15 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { useAuth } from "../../context/AuthContext";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
+import {
+  isNumberInRange,
+  isSupportedDocumentFile,
+  isSupportedProfileImage,
+  isValidCnic,
+  isValidEmail,
+  isValidName,
+  isValidPhone,
+} from "../../lib/validation";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
   fetchStudentProfile,
@@ -73,6 +82,7 @@ function StudentProfile({ studentId, initialName }) {
   const [isEditing, setIsEditing] = useState(false);
   const [profileData, setProfileData] = useState(initialProfile);
   const [statusMessage, setStatusMessage] = useState("");
+  const [statusTone, setStatusTone] = useState("info");
 
   const calculatePercentage = (obtained, total) => {
     const obt = parseFloat(obtained);
@@ -119,17 +129,70 @@ function StudentProfile({ studentId, initialName }) {
   useEffect(() => {
     if (error) {
       setStatusMessage(error);
+      setStatusTone("error");
     }
   }, [error]);
 
   useEffect(() => {
     if (saveError) {
       setStatusMessage(saveError);
+      setStatusTone("error");
     }
   }, [saveError]);
 
   const handleSave = async () => {
     setStatusMessage("");
+    setStatusTone("info");
+
+    if (!isValidName(profileData.fullName)) {
+      setStatusMessage("Enter a valid full name.");
+      setStatusTone("error");
+      return;
+    }
+
+    if (profileData.fatherName && !isValidName(profileData.fatherName)) {
+      setStatusMessage("Enter a valid father's name.");
+      setStatusTone("error");
+      return;
+    }
+
+    if (profileData.cnic && !isValidCnic(profileData.cnic)) {
+      setStatusMessage("Enter a valid CNIC/B-Form number.");
+      setStatusTone("error");
+      return;
+    }
+
+    if (profileData.email && !isValidEmail(profileData.email)) {
+      setStatusMessage("Enter a valid email address.");
+      setStatusTone("error");
+      return;
+    }
+
+    if (profileData.phone && !isValidPhone(profileData.phone)) {
+      setStatusMessage("Enter a valid Pakistani mobile number.");
+      setStatusTone("error");
+      return;
+    }
+
+    if (profileData.alternatePhone && !isValidPhone(profileData.alternatePhone)) {
+      setStatusMessage("Enter a valid alternate Pakistani mobile number.");
+      setStatusTone("error");
+      return;
+    }
+
+    const marksChecks = [
+      ["Matric total marks", profileData.matricTotalMarks, 1, 2000],
+      ["Matric obtained marks", profileData.matricObtainedMarks, 0, Number(profileData.matricTotalMarks || 2000)],
+      ["Intermediate total marks", profileData.interTotalMarks, 1, 2000],
+      ["Intermediate obtained marks", profileData.interObtainedMarks, 0, Number(profileData.interTotalMarks || 2000)],
+    ];
+
+    const invalidMarks = marksChecks.find(([label, value, min, max]) => value && !isNumberInRange(value, min, max));
+    if (invalidMarks) {
+      setStatusMessage(`${invalidMarks[0]} must be a valid number within the allowed range.`);
+      setStatusTone("error");
+      return;
+    }
 
     const requiredDocuments = [
       { key: "profilePicture", label: "profile picture" },
@@ -144,6 +207,7 @@ function StudentProfile({ studentId, initialName }) {
 
     if (missingDocuments.length > 0) {
       setStatusMessage(`Please upload: ${missingDocuments.join(", ")}.`);
+      setStatusTone("error");
       return;
     }
 
@@ -153,8 +217,10 @@ function StudentProfile({ studentId, initialName }) {
       await refreshUser();
       setIsEditing(false);
       setStatusMessage("Profile updated successfully.");
+      setStatusTone("success");
     } catch (error) {
       setStatusMessage(error?.message || "Unable to update profile.");
+      setStatusTone("error");
     }
   };
 
@@ -162,9 +228,23 @@ function StudentProfile({ studentId, initialName }) {
     setProfileData((previous) => ({ ...previous, [field]: value }));
   };
 
-  const handleFileUpload = async (event, field, fileNameField) => {
+  const handleFileUpload = async (event, field, fileNameField, type = "document") => {
     const file = event.target.files?.[0];
     if (!file) return;
+
+    const isValidFile =
+      type === "profile" ? isSupportedProfileImage(file) : isSupportedDocumentFile(file);
+
+    if (!isValidFile) {
+      setStatusMessage(
+        type === "profile"
+          ? "Profile picture must be a JPG or PNG image."
+          : "Document uploads must be PDF, JPG, or PNG files.",
+      );
+      setStatusTone("error");
+      event.target.value = "";
+      return;
+    }
 
     try {
       const dataUrl = await readFileAsDataUrl(file);
@@ -173,36 +253,13 @@ function StudentProfile({ studentId, initialName }) {
         [field]: dataUrl,
         [fileNameField]: file.name,
       }));
+      setStatusMessage("");
+      setStatusTone("info");
     } catch {
       setStatusMessage("Unable to read selected file.");
+      setStatusTone("error");
     }
   };
-
-  const programs = [
-    "Computer Science",
-    "Software Engineering",
-    "Electrical Engineering",
-    "Mechanical Engineering",
-    "Civil Engineering",
-    "Business Administration",
-    "Economics",
-    "Medicine",
-    "Pharmacy",
-    "Architecture",
-  ];
-
-  const cities = [
-    "Islamabad",
-    "Rawalpindi",
-    "Lahore",
-    "Karachi",
-    "Faisalabad",
-    "Multan",
-    "Peshawar",
-    "Quetta",
-    "Abbottabad",
-    "Sialkot",
-  ];
 
   if (loading) {
     return (
@@ -214,19 +271,21 @@ function StudentProfile({ studentId, initialName }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-slate-900 mb-2">Student Profile</h1>
-          <p className="text-slate-600">Manage your personal and academic information</p>
+          <h1 className="uaams-page-title">Student Profile</h1>
+          <p className="uaams-page-description">Manage your personal and academic information</p>
         </div>
         {!isEditing ? (
-          <Button onClick={() => setIsEditing(true)}>Edit Profile</Button>
+          <Button onClick={() => setIsEditing(true)} className="w-40 bg-emerald-500 hover:bg-emerald-600 text-white sm:w-auto">
+            Edit Profile
+          </Button>
         ) : (
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Button variant="outline" onClick={() => setIsEditing(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSave} className="gap-2" disabled={saving}>
+            <Button onClick={handleSave} className="gap-2 bg-emerald-500 hover:bg-emerald-600 text-white" disabled={saving}>
               <Save className="w-4 h-4" />
               {saving ? "Saving..." : "Save Changes"}
             </Button>
@@ -235,11 +294,21 @@ function StudentProfile({ studentId, initialName }) {
       </div>
 
       {statusMessage ? (
-        <p className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">{statusMessage}</p>
+        <p
+          className={`rounded-lg border px-3 py-2 text-sm ${
+            statusTone === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : statusTone === "error"
+                ? "border-red-200 bg-red-50 text-red-700"
+                : "border-slate-200 bg-slate-50 text-slate-700"
+          }`}
+        >
+          {statusMessage}
+        </p>
       ) : null}
 
       <Card className="bg-white border border-slate-200 p-6">
-        <div className="flex items-center gap-6">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-6">
           <div className="w-24 h-24 bg-linear-to-br from-emerald-500 to-emerald-600 rounded-full flex items-center justify-center overflow-hidden">
             {profileData.profilePicture ? (
               <img src={profileData.profilePicture} alt="Profile" className="w-full h-full object-cover" />
@@ -248,8 +317,8 @@ function StudentProfile({ studentId, initialName }) {
             )}
           </div>
           <div className="flex-1">
-            <h3 className="text-slate-900 mb-2">Profile Picture</h3>
-            <p className="text-slate-600 text-sm mb-3">Upload your photo (recommended: square image, max 2MB)</p>
+            <h3 className="uaams-section-title mb-1">Profile Picture</h3>
+            <p className="text-slate-600 text-sm mb-3">Upload a square JPG or PNG photo, max 2MB.</p>
             {profileData.profilePictureFileName ? (
               <p className="mb-2 text-xs text-slate-500">Selected: {profileData.profilePictureFileName}</p>
             ) : null}
@@ -259,8 +328,8 @@ function StudentProfile({ studentId, initialName }) {
                 Upload Picture
                 <input
                   type="file"
-                  accept="image/*"
-                  onChange={(event) => handleFileUpload(event, "profilePicture", "profilePictureFileName")}
+                  accept=".jpg,.jpeg,.png"
+                  onChange={(event) => handleFileUpload(event, "profilePicture", "profilePictureFileName", "profile")}
                   className="hidden"
                 />
               </label>
@@ -270,7 +339,7 @@ function StudentProfile({ studentId, initialName }) {
       </Card>
 
       <Card className="bg-white border border-slate-200 p-6">
-        <h3 className="text-slate-900 mb-4 flex items-center gap-2">
+        <h3 className="uaams-section-title mb-3 flex items-center gap-2">
           <FileText className="w-5 h-5 text-emerald-600" />
           Required Documents
         </h3>
@@ -303,7 +372,7 @@ function StudentProfile({ studentId, initialName }) {
       </Card>
 
       <Card className="bg-white border border-slate-200 p-6">
-        <h3 className="text-slate-900 mb-4 flex items-center gap-2">
+        <h3 className="uaams-section-title mb-3 flex items-center gap-2">
           <User className="w-5 h-5 text-emerald-600" />
           Personal Information
         </h3>
@@ -350,7 +419,7 @@ function StudentProfile({ studentId, initialName }) {
               value={profileData.gender}
               onChange={(e) => handleChange("gender", e.target.value)}
               disabled={!isEditing}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+              className="uaams-disabled-control w-full rounded-lg border border-slate-300 px-3 py-2"
             >
               <option value="male">Male</option>
               <option value="female">Female</option>
@@ -363,7 +432,7 @@ function StudentProfile({ studentId, initialName }) {
               value={profileData.bloodGroup}
               onChange={(e) => handleChange("bloodGroup", e.target.value)}
               disabled={!isEditing}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+              className="uaams-disabled-control w-full rounded-lg border border-slate-300 px-3 py-2"
             >
               <option value="">Select Blood Group</option>
               <option value="A+">A+</option>
@@ -398,7 +467,7 @@ function StudentProfile({ studentId, initialName }) {
       </Card>
 
       <Card className="bg-white border border-slate-200 p-6">
-        <h3 className="text-slate-900 mb-4 flex items-center gap-2">
+        <h3 className="uaams-section-title mb-3 flex items-center gap-2">
           <Phone className="w-5 h-5 text-emerald-600" />
           Contact Information
         </h3>
@@ -437,7 +506,7 @@ function StudentProfile({ studentId, initialName }) {
       </Card>
 
       <Card className="bg-white border border-slate-200 p-6">
-        <h3 className="text-slate-900 mb-4 flex items-center gap-2">
+        <h3 className="uaams-section-title mb-3 flex items-center gap-2">
           <MapPin className="w-5 h-5 text-emerald-600" />
           Address
         </h3>
@@ -466,7 +535,7 @@ function StudentProfile({ studentId, initialName }) {
               value={profileData.province}
               onChange={(e) => handleChange("province", e.target.value)}
               disabled={!isEditing}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+              className="uaams-disabled-control w-full rounded-lg border border-slate-300 px-3 py-2"
             >
               <option value="">Select Province</option>
               <option value="Punjab">Punjab</option>
@@ -491,7 +560,7 @@ function StudentProfile({ studentId, initialName }) {
       </Card>
 
       <Card className="bg-white border border-slate-200 p-6">
-        <h3 className="text-slate-900 mb-4 flex items-center gap-2">
+        <h3 className="uaams-section-title mb-3 flex items-center gap-2">
           <BookOpen className="w-5 h-5 text-emerald-600" />
           Matriculation / SSC Information
         </h3>
@@ -557,7 +626,7 @@ function StudentProfile({ studentId, initialName }) {
       </Card>
 
       <Card className="bg-white border border-slate-200 p-6">
-        <h3 className="text-slate-900 mb-4 flex items-center gap-2">
+        <h3 className="uaams-section-title mb-3 flex items-center gap-2">
           <GraduationCap className="w-5 h-5 text-emerald-600" />
           Intermediate / HSSC / A-Level Information
         </h3>
@@ -596,7 +665,7 @@ function StudentProfile({ studentId, initialName }) {
               value={profileData.interGroup}
               onChange={(e) => handleChange("interGroup", e.target.value)}
               disabled={!isEditing}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+              className="uaams-disabled-control w-full rounded-lg border border-slate-300 px-3 py-2"
             >
               <option value="">Select Group</option>
               <option value="Pre-Engineering">Pre-Engineering</option>
@@ -639,100 +708,7 @@ function StudentProfile({ studentId, initialName }) {
         </div>
       </Card>
 
-      <Card className="bg-white border border-slate-200 p-6">
-        <h3 className="text-slate-900 mb-4 flex items-center gap-2">
-          <Award className="w-5 h-5 text-emerald-600" />
-          Preferences & Interests
-        </h3>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-slate-700 mb-2 text-sm">Preferred Programs</label>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-              {programs.map((program) => (
-                <label
-                  key={program}
-                  className="flex items-center gap-2 p-2 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={profileData.preferredPrograms.includes(program)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        handleChange("preferredPrograms", [...profileData.preferredPrograms, program]);
-                      } else {
-                        handleChange(
-                          "preferredPrograms",
-                          profileData.preferredPrograms.filter((p) => p !== program),
-                        );
-                      }
-                    }}
-                    disabled={!isEditing}
-                    className="w-4 h-4"
-                  />
-                  <span className="text-sm text-slate-700">{program}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="block text-slate-700 mb-2 text-sm">Preferred Cities</label>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-              {cities.map((city) => (
-                <label
-                  key={city}
-                  className="flex items-center gap-2 p-2 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={profileData.preferredCities.includes(city)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        handleChange("preferredCities", [...profileData.preferredCities, city]);
-                      } else {
-                        handleChange(
-                          "preferredCities",
-                          profileData.preferredCities.filter((c) => c !== city),
-                        );
-                      }
-                    }}
-                    disabled={!isEditing}
-                    className="w-4 h-4"
-                  />
-                  <span className="text-sm text-slate-700">{city}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      <Card className="bg-white border border-slate-200 p-6">
-        <h3 className="text-slate-900 mb-4">Additional Information</h3>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-slate-700 mb-2 text-sm">Academic Achievements & Awards</label>
-            <textarea
-              value={profileData.achievements}
-              onChange={(e) => handleChange("achievements", e.target.value)}
-              disabled={!isEditing}
-              placeholder="List your academic achievements, awards, scholarships, etc..."
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-              rows={4}
-            />
-          </div>
-          <div>
-            <label className="block text-slate-700 mb-2 text-sm">Extra-Curricular Activities</label>
-            <textarea
-              value={profileData.extraCurricular}
-              onChange={(e) => handleChange("extraCurricular", e.target.value)}
-              disabled={!isEditing}
-              placeholder="Sports, societies, volunteer work, hobbies, etc..."
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-              rows={4}
-            />
-          </div>
-        </div>
-      </Card>
+    
     </div>
   );
 }
@@ -750,7 +726,7 @@ function DocumentUploadItem({ label, fileName, hasFile, isEditing, onChange }) {
         <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100">
           <Upload className="h-3.5 w-3.5" />
           Upload
-          <input type="file" accept="image/*,.pdf" onChange={onChange} className="hidden" />
+          <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={onChange} className="hidden" />
         </label>
       ) : null}
     </div>

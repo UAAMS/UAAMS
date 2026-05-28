@@ -36,7 +36,8 @@ export function PaymentSettings() {
   } = useAppSelector((state) => state.universityAccount.settings);
 
   const [paymentMethods, setPaymentMethods] = useState([emptyPaymentMethod()]);
-  const error = saveError || loadError;
+  const [localError, setLocalError] = useState("");
+  const error = localError || saveError || loadError;
 
   useEffect(() => {
     dispatch(fetchUniversitySettings());
@@ -51,11 +52,13 @@ export function PaymentSettings() {
       previous.map((method) => (method.id === id ? { ...method, [field]: value } : method)),
     );
     dispatch(clearUniversityAccountMessages());
+    setLocalError("");
   };
 
   const addMethod = () => {
     setPaymentMethods((previous) => [...previous, emptyPaymentMethod()]);
     dispatch(clearUniversityAccountMessages());
+    setLocalError("");
   };
 
   const removeMethod = (id) => {
@@ -63,10 +66,12 @@ export function PaymentSettings() {
       previous.length === 1 ? [emptyPaymentMethod()] : previous.filter((method) => method.id !== id),
     );
     dispatch(clearUniversityAccountMessages());
+    setLocalError("");
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    setLocalError("");
     const cleanedMethods = paymentMethods
       .map((method) => ({
         ...method,
@@ -91,6 +96,29 @@ export function PaymentSettings() {
           method.instructions,
       );
 
+    const invalidMethod = cleanedMethods.find((method) => {
+      if (!method.title) return true;
+      if (method.type === "bank") {
+        return (
+          !method.accountTitle ||
+          !method.bankName ||
+          !/^[A-Za-z0-9 -]{6,40}$/.test(method.accountNumber) ||
+          (method.iban && !/^PK[0-9A-Z]{2}[0-9A-Z]{16,30}$/i.test(method.iban.replace(/\s+/g, "")))
+        );
+      }
+      if (method.type === "wallet") {
+        return !method.walletName || !/^(\+92|0)?[ -]?3\d{2}[ -]?\d{7}$/.test(method.walletNumber);
+      }
+      return !method.accountNumber && !method.instructions;
+    });
+
+    if (invalidMethod) {
+      setLocalError(
+        "Please complete each payment method with valid account, IBAN, or wallet details.",
+      );
+      return;
+    }
+
     try {
       const payload = { ...storedSettings, paymentMethods: cleanedMethods };
       delete payload.universityName;
@@ -101,8 +129,8 @@ export function PaymentSettings() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-slate-900 mb-2">Payment Details</h1>
-        <p className="text-slate-600">
+        <h1 className="uaams-page-title">Payment Details</h1>
+        <p className="uaams-page-description">
           Add the bank or wallet details students should use before uploading payment proof.
         </p>
       </div>
@@ -126,8 +154,8 @@ export function PaymentSettings() {
 
       {!isLoading ? (
         <form onSubmit={handleSubmit} className="space-y-5">
-          <section className="rounded-lg border border-slate-200 bg-white p-6">
-            <div className="mb-4 flex items-center justify-between gap-3">
+          <section className="rounded-lg border border-slate-200 bg-white p-4 sm:p-6">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
                 <div className="rounded-lg bg-emerald-50 p-2 text-emerald-700">
                   <Landmark className="h-5 w-5" />

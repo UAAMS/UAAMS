@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { School, MapPin, DollarSign, Calendar, TrendingUp } from "lucide-react";
+import { School, MapPin, DollarSign, Calendar, ChevronRight, TrendingUp } from "lucide-react";
 import { onDataUpdated } from "../../lib/socketClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { fetchRecommendations } from "../../store/slices/recommendationsSlice";
@@ -50,8 +50,8 @@ function UniversityRecommendations() {
   } = useAppSelector((state) => state.recommendations);
   const [selectedFilters, setSelectedFilters] = useState({
     type: "all",
-    minAggregate: 0,
-    maxFee: 1000000,
+    minAggregate: "",
+    maxFee: "",
   });
 
   useEffect(() => {
@@ -68,8 +68,13 @@ function UniversityRecommendations() {
   }, [dispatch]);
 
   const filteredUniversities = useMemo(
-    () =>
-      universities
+    () => {
+      const minimumAggregate =
+        selectedFilters.minAggregate === "" ? 0 : Number(selectedFilters.minAggregate);
+      const maximumFee =
+        selectedFilters.maxFee === "" ? Number.MAX_SAFE_INTEGER : Number(selectedFilters.maxFee);
+
+      return universities
         .filter((university) => {
           const programRecommendations = resolveProgramRecommendations(university);
 
@@ -83,13 +88,13 @@ function UniversityRecommendations() {
           if (
             programRecommendations.length > 0 &&
             !programRecommendations.some(
-              (program) => Number(program.requiredAggregate || 0) >= selectedFilters.minAggregate,
+              (program) => Number(program.requiredAggregate || 0) >= minimumAggregate,
             )
           ) {
             return false;
           }
 
-          if (Number(university.applicationFee || 0) > selectedFilters.maxFee) {
+          if (Number(university.applicationFee || 0) > maximumFee) {
             return false;
           }
 
@@ -105,20 +110,25 @@ function UniversityRecommendations() {
             ...resolveProgramRecommendations(b).map((item) => Number(item.matchScore || 0)),
           );
           return bestB - bestA;
-        }),
+        });
+    },
     [universities, selectedFilters],
   );
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-slate-900 mb-2">University Recommendations</h1>
-        <p className="text-slate-600">Universities matched based on your academic profile (real-time updates enabled)</p>
+        <h1 className="mb-2 text-2xl font-semibold text-slate-900 sm:text-3xl">
+          University Recommendations
+        </h1>
+        <p className="text-sm text-slate-600 sm:text-base">
+          Universities matched based on your academic profile (real-time updates enabled)
+        </p>
       </div>
 
-      <div className="bg-white rounded-lg border border-slate-200 p-6">
-        <h3 className="text-slate-900 mb-4">Filter Universities</h3>
-        <div className="grid md:grid-cols-3 gap-4">
+      <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-6">
+        <h3 className="mb-4 text-base font-semibold text-slate-900">Filter Universities</h3>
+        <div className="grid gap-4 md:grid-cols-3">
           <div>
             <label className="block text-slate-700 mb-2 text-sm">University Type</label>
             <select
@@ -141,11 +151,13 @@ function UniversityRecommendations() {
               onChange={(event) =>
                 setSelectedFilters({
                   ...selectedFilters,
-                  minAggregate: parseInt(event.target.value, 10) || 0,
+                  minAggregate: event.target.value,
                 })
               }
               className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
               placeholder="e.g., 70"
+              min="0"
+              max="100"
             />
           </div>
           <div>
@@ -156,11 +168,12 @@ function UniversityRecommendations() {
               onChange={(event) =>
                 setSelectedFilters({
                   ...selectedFilters,
-                  maxFee: parseInt(event.target.value, 10) || 1000000,
+                  maxFee: event.target.value,
                 })
               }
               className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
               placeholder="e.g., 5000"
+              min="0"
             />
           </div>
         </div>
@@ -198,6 +211,7 @@ function UniversityRecommendations() {
 function UniversityCard({ university }) {
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
+  const logoUrl = university.logo || university.representativeProfilePicture || "";
   const programRecommendations = useMemo(
     () => resolveProgramRecommendations(university),
     [university],
@@ -218,15 +232,23 @@ function UniversityCard({ university }) {
   return (
     <div className="bg-white rounded-lg border border-slate-200 overflow-hidden hover:shadow-lg transition-shadow">
       <div className="p-6">
-        <div className="flex items-start justify-between mb-4">
+        <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex-1">
             <div className="flex items-start gap-3">
-              <div className="w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center shrink-0">
-                <School className="w-6 h-6 text-emerald-600" />
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-emerald-100">
+                {logoUrl ? (
+                  <img
+                    src={logoUrl}
+                    alt={`${university.name} logo`}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <School className="h-6 w-6 text-emerald-600" />
+                )}
               </div>
               <div className="flex-1">
                 <h3 className="text-slate-900 mb-1">{university.name}</h3>
-                <div className="flex items-center gap-4 text-sm text-slate-600">
+                <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
                   <div className="flex items-center gap-1">
                     <MapPin className="w-4 h-4" />
                     {university.location}
@@ -238,7 +260,7 @@ function UniversityCard({ university }) {
               </div>
             </div>
           </div>
-          <div className="text-right">
+          <div className="text-left sm:text-right">
             <div className="text-emerald-600 mb-1">Best Program Match</div>
             <div className="text-3xl text-emerald-700">{Number(bestProgramMatch.matchScore || 0)}%</div>
           </div>
@@ -330,10 +352,12 @@ function UniversityCard({ university }) {
         ) : null}
 
         <button
+          type="button"
           onClick={() => setExpanded((previous) => !previous)}
-          className="mt-4 text-emerald-600 hover:text-emerald-700 text-sm"
+          className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 mt-4"
         >
-          {expanded ? "Show Less" : "Show More Details"} {"->"}
+          {expanded ? "Show Less" : "Show More Details"}
+          <ChevronRight className="w-4 h-4" />
         </button>
       </div>
     </div>

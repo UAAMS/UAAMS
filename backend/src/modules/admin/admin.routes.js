@@ -12,6 +12,8 @@ const {
   listStudentsManagement,
   listBloggersManagement,
   deleteManagedUser,
+  getMyProfile,
+  updateMyProfile,
 } = require("./admin.controller");
 const { protect, authorize } = require("../../middleware/auth.middleware");
 const { ROLES } = require("../../constants/roles");
@@ -19,6 +21,9 @@ const { ROLES } = require("../../constants/roles");
 const router = express.Router();
 
 router.use(protect, authorize(ROLES.ADMIN));
+
+router.get("/me/profile", getMyProfile);
+router.put("/me/profile", updateMyProfile);
 
 router.get("/stats", getDashboardStats);
 router.get("/dashboard", getAdminDashboard);

@@ -85,7 +85,7 @@ export const AppRoutes = () => {
             path="/student"
             element={
               <DashboardLayout
-                title="Student Dashboard"
+                title="Student Portal"
                 navItems={studentNavItems}
                 theme="emerald"
               />
@@ -100,7 +100,7 @@ export const AppRoutes = () => {
             path="/university"
             element={
               <DashboardLayout
-                title="University Dashboard"
+                title="University Portal"
                 navItems={universityNavItems}
                 theme="blue"
               />

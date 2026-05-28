@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
   deleteAdminStudent,
@@ -30,6 +31,7 @@ function StudentManagement() {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [pendingAction, setPendingAction] = useState(null);
   const activeId = mutatingKeys[0] || "";
 
   useEffect(() => {
@@ -58,25 +60,24 @@ function StudentManagement() {
     [students]
   );
 
-  const handleToggleStatus = async (student) => {
+  const handleToggleStatus = async (student = pendingAction?.item) => {
+    if (!student) return;
     const nextStatus = student.status === "active" ? "inactive" : "active";
     try {
       await dispatch(
         toggleAdminStudentStatus({ studentId: student.id, status: nextStatus }),
       ).unwrap();
+      setPendingAction(null);
     } catch {
       // Errors are surfaced from Redux state.
     }
   };
 
-  const handleDeleteStudent = async (student) => {
-    const confirmed = window.confirm(
-      `Delete student "${student.name}"?\nThis will remove the account and related records.`,
-    );
-    if (!confirmed) return;
-
+  const handleDeleteStudent = async (student = pendingAction?.item) => {
+    if (!student) return;
     try {
       await dispatch(deleteAdminStudent(student.id)).unwrap();
+      setPendingAction(null);
     } catch {
       // Errors are surfaced from Redux state.
     }
@@ -85,8 +86,8 @@ function StudentManagement() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-slate-900 mb-2">Student Management</h1>
-        <p className="text-slate-600">Monitor student profiles and account status.</p>
+        <h1 className="uaams-page-title">Student Management</h1>
+        <p className="uaams-page-description">Monitor student profiles and account status.</p>
       </div>
 
       <div className="grid md:grid-cols-4 gap-4">
@@ -176,7 +177,7 @@ function StudentManagement() {
 
                   <button
                     type="button"
-                    onClick={() => handleToggleStatus(student)}
+                    onClick={() => setPendingAction({ type: "status", item: student })}
                     disabled={Boolean(activeId)}
                     className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-70"
                   >
@@ -184,7 +185,7 @@ function StudentManagement() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleDeleteStudent(student)}
+                    onClick={() => setPendingAction({ type: "delete", item: student })}
                     disabled={Boolean(activeId)}
                     className="rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 disabled:opacity-70"
                   >
@@ -196,6 +197,24 @@ function StudentManagement() {
           ))}
         </div>
       ) : null}
+      <ConfirmDialog
+        open={Boolean(pendingAction)}
+        title={pendingAction?.type === "delete" ? "Delete student?" : "Change student status?"}
+        description={
+          pendingAction?.type === "delete"
+            ? `This will remove ${pendingAction?.item?.name || "this student"} and related records.`
+            : `Set ${pendingAction?.item?.name || "this student"} to ${
+                pendingAction?.item?.status === "active" ? "inactive" : "active"
+              }.`
+        }
+        confirmLabel={pendingAction?.type === "delete" ? "Delete Student" : "Update Status"}
+        tone={pendingAction?.type === "delete" ? "danger" : "success"}
+        isLoading={Boolean(activeId)}
+        onConfirm={() =>
+          pendingAction?.type === "delete" ? handleDeleteStudent() : handleToggleStatus()
+        }
+        onCancel={() => setPendingAction(null)}
+      />
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import {
   BookOpen,
   Calendar,
@@ -9,11 +10,14 @@ import {
   Reply,
   Search,
   Send,
+  School,
   Tag,
 } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
+import { Avatar } from "../shared/Avatar";
+import { ImagePreviewModal } from "../shared/ImagePreviewModal";
 import { onDataUpdated } from "../../lib/socketClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
@@ -56,6 +60,7 @@ function StudentBlog() {
   const [replyDrafts, setReplyDrafts] = useState({});
   const [activeReplyInput, setActiveReplyInput] = useState("");
   const [actionError, setActionError] = useState("");
+  const [imagePreviewUrl, setImagePreviewUrl] = useState("");
   const comments = useMemo(
     () => (selectedPostId ? commentsByPost[selectedPostId] || [] : []),
     [commentsByPost, selectedPostId],
@@ -79,6 +84,17 @@ function StudentBlog() {
 
     return () => unsubscribe();
   }, [dispatch, selectedPostId]);
+
+  const location = useLocation();
+
+  useEffect(() => {
+    // If navigated with a postId in state (from notification), open that post
+    const postIdFromState = location?.state?.postId;
+    if (postIdFromState) {
+      setSelectedPostId(postIdFromState);
+    }
+    // Do not clear location.state here; keep behavior simple
+  }, [location?.state]);
 
   useEffect(() => {
     if (!selectedPostId) return;
@@ -186,18 +202,25 @@ function StudentBlog() {
             setSelectedPostId("");
             setActionError("");
           }}
-          className="flex items-center gap-2 text-emerald-600 hover:text-emerald-700"
+          className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100"
         >
           {"<-"} Back to Blog
         </button>
 
         <Card className="bg-white border border-slate-200 overflow-hidden">
           {selectedPost.imageUrl ? (
-            <img
-              src={selectedPost.imageUrl}
-              alt={selectedPost.title}
-              className="w-full h-96 object-cover"
-            />
+            <button
+              type="button"
+              onClick={() => setImagePreviewUrl(selectedPost.imageUrl)}
+              className="block w-full"
+              title="Open image preview"
+            >
+              <img
+                src={selectedPost.imageUrl}
+                alt={selectedPost.title}
+                className="h-64 w-full object-cover sm:h-96"
+              />
+            </button>
           ) : (
             <div className="h-56 bg-slate-100 flex items-center justify-center text-slate-500">
               No cover image
@@ -216,17 +239,32 @@ function StudentBlog() {
 
             <h1 className="text-slate-900 mb-4">{selectedPost.title}</h1>
 
-            <div className="flex items-center gap-4 mb-6 pb-6 border-b border-slate-200">
-              <div className="w-12 h-12 flex items-center justify-center bg-gradient-to-br from-emerald-500 to-blue-500 text-white rounded-full">
-                <BookOpen className="w-5 h-5" />
-              </div>
+            <div className="flex flex-col gap-4 mb-6 pb-6 border-b border-slate-200 sm:flex-row sm:items-center">
+              <Avatar
+                src={
+                  selectedPost.authorProfilePicture ||
+                  selectedPost.representativeProfilePicture ||
+                  selectedPost.universityLogo
+                }
+                name={selectedPost.author}
+                size="lg"
+                className="bg-emerald-50 text-emerald-700"
+              />
               <div className="flex-1">
                 <div className="text-slate-900">{selectedPost.author}</div>
                 <div className="text-sm text-slate-600">
                   {selectedPost.authorTitle} | {selectedPost.university}
                 </div>
               </div>
-              <div className="text-sm text-slate-500 flex items-center gap-4">
+              {selectedPost.universityLogo ? (
+                <Avatar
+                  src={selectedPost.universityLogo}
+                  name={selectedPost.university}
+                  size="sm"
+                  className="rounded-lg bg-white"
+                />
+              ) : null}
+              <div className="text-sm text-slate-500 flex flex-wrap items-center gap-4">
                 <span className="flex items-center gap-1">
                   <Calendar className="w-4 h-4" />
                   {selectedPost.publishDate}
@@ -333,6 +371,11 @@ function StudentBlog() {
             </div>
           </div>
         </Card>
+        <ImagePreviewModal
+          imageUrl={imagePreviewUrl}
+          alt={selectedPost.title}
+          onClose={() => setImagePreviewUrl("")}
+        />
       </div>
     );
   }
@@ -340,11 +383,11 @@ function StudentBlog() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-slate-900 mb-2">University Blog</h1>
-        <p className="text-slate-600">Insights and guidance from universities (real-time updates enabled)</p>
+        <h1 className="uaams-page-title">University Blog</h1>
+        <p className="uaams-page-description">Insights and guidance from universities.</p>
       </div>
 
-      <Card className="bg-white border border-slate-200 p-6">
+      <Card className="bg-white border border-slate-200 p-4 sm:p-6">
         <div className="space-y-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
@@ -395,7 +438,7 @@ function StudentBlog() {
       ) : null}
 
       {!isLoading && !error && filteredPosts.length > 0 ? (
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className="grid gap-4 lg:grid-cols-2">
           {filteredPosts.map((post) => (
             <Card
               key={post.id}
@@ -411,12 +454,21 @@ function StudentBlog() {
               )}
 
               <div className="p-6">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex flex-col items-start mb-3 sm:flex-row sm:items-center sm:justify-between w-full">
                   <div className="flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 text-emerald-600" />
+                    {post.universityLogo ? (
+                      <Avatar
+                      src={post.universityLogo}
+                      name={post.university}
+                      size="sm"
+                      className="rounded-lg bg-white"
+                      />
+                    ) : (
+                      <BookOpen className="w-4 h-4 text-emerald-600" />
+                    )}
                     <span className="text-sm text-slate-600">{post.university}</span>
                   </div>
-                  <Badge className="bg-emerald-100 text-emerald-700 text-xs">{post.category}</Badge>
+                    <Badge className="bg-emerald-100 text-emerald-700 text-xs items-end">{post.category}</Badge>
                 </div>
 
                 <h3 className="text-slate-900 mb-2 line-clamp-2">{post.title}</h3>
@@ -453,14 +505,11 @@ function StudentBlog() {
                       <Calendar className="w-3 h-3" />
                       {post.publishDate}
                     </span>
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {post.readTime}
-                    </span>
                   </div>
                   <button
                     type="button"
-                    className="flex items-center gap-1 text-sm text-emerald-600 hover:text-emerald-700"
+                    onClick={() => setSelectedPostId(post.id)}
+                    className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100"
                   >
                     Read More
                     <ChevronRight className="w-4 h-4" />

@@ -9,6 +9,13 @@ const {
   sendPasswordResetOtpEmail,
   sendEmailVerificationLinkEmail,
 } = require("../utils/mailer");
+const {
+  isNumberInRange,
+  isStrongPassword,
+  isValidEmail,
+  isValidName,
+  isValidPhone,
+} = require("../utils/validators");
 const env = require("../config/env");
 const { ROLES, UNIVERSITY_APPROVAL } = require("../constants/roles");
 
@@ -68,6 +75,36 @@ const buildEmailVerificationUrl = (req, verificationToken, email = "") => {
   )}&email=${encodeURIComponent(String(email || "").trim().toLowerCase())}`;
 };
 
+const buildAuthUser = async (user) => {
+  const safeUser = user.toSafeObject();
+
+  if (user.role === ROLES.STUDENT) {
+    const profile = await StudentProfile.findOne({ user: user._id })
+      .select("profilePicture")
+      .lean();
+    return {
+      ...safeUser,
+      profilePicture: profile?.profilePicture || safeUser.profilePicture || "",
+    };
+  }
+
+  if (user.role === ROLES.UNIVERSITY) {
+    const profile = await UniversityProfile.findOne({ university: user._id })
+      .select("logo representativeProfilePicture universityName")
+      .lean();
+    return {
+      ...safeUser,
+      name: profile?.universityName || safeUser.name,
+      logo: profile?.logo || "",
+      representativeProfilePicture: profile?.representativeProfilePicture || "",
+      profilePicture:
+        profile?.representativeProfilePicture || profile?.logo || safeUser.profilePicture || "",
+    };
+  }
+
+  return safeUser;
+};
+
 const register = asyncHandler(async (req, res) => {
   const {
     role,
@@ -97,6 +134,39 @@ const register = asyncHandler(async (req, res) => {
   }
 
   const normalizedEmail = String(email).trim().toLowerCase();
+
+  if (!isValidEmail(normalizedEmail)) {
+    throw new ApiError(400, "Enter a valid email address.");
+  }
+
+  if (!isStrongPassword(password)) {
+    throw new ApiError(
+      400,
+      "Password must be at least 8 characters and include uppercase, lowercase, number, and special character."
+    );
+  }
+
+  if (role === ROLES.STUDENT && !isValidName(name)) {
+    throw new ApiError(400, "Enter a valid full name.");
+  }
+
+  if (role === ROLES.UNIVERSITY) {
+    if (String(name || "").trim().length < 3) {
+      throw new ApiError(400, "Enter a valid university name.");
+    }
+    if (!isValidName(representativeName)) {
+      throw new ApiError(400, "Enter a valid representative name.");
+    }
+    if (!isValidPhone(phone)) {
+      throw new ApiError(400, "Enter a valid Pakistani mobile number.");
+    }
+    if (!isNumberInRange(establishedYear, 1800, new Date().getFullYear())) {
+      throw new ApiError(400, "Enter a valid established year.");
+    }
+    if (!isNumberInRange(studentCount, 1, 1000000)) {
+      throw new ApiError(400, "Enter a valid student count.");
+    }
+  }
 
   const existingEmail = await User.findOne({ email: normalizedEmail });
   if (existingEmail) {
@@ -268,7 +338,7 @@ const login = asyncHandler(async (req, res) => {
     message: "Login successful.",
     data: {
       token,
-      user: user.toSafeObject(),
+      user: await buildAuthUser(user),
     },
   });
 });
@@ -277,7 +347,7 @@ const me = asyncHandler(async (req, res) => {
   return res.status(200).json({
     success: true,
     data: {
-      user: req.user.toSafeObject(),
+      user: await buildAuthUser(req.user),
     },
   });
 });
@@ -384,8 +454,8 @@ const resendEmailVerification = asyncHandler(async (req, res) => {
 
 const requestPasswordResetOtp = asyncHandler(async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
-  if (!email) {
-    throw new ApiError(400, "Email is required.");
+  if (!isValidEmail(email)) {
+    throw new ApiError(400, "Enter a valid email address.");
   }
 
   const user = await User.findOne({ email }).select(
@@ -393,7 +463,10 @@ const requestPasswordResetOtp = asyncHandler(async (req, res) => {
   );
 
   if (!user) {
-    throw new ApiError(404, "No account found with this email address.");
+    return res.status(200).json({
+      success: true,
+      message: "If an account exists, an OTP has been sent.",
+    });
   }
 
   const otp = generateOtp();
@@ -461,8 +534,11 @@ const resetPasswordWithOtp = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Email, OTP, new password, and confirm password are required.");
   }
 
-  if (newPassword.length < 6) {
-    throw new ApiError(400, "New password must be at least 6 characters long.");
+  if (!isStrongPassword(newPassword)) {
+    throw new ApiError(
+      400,
+      "New password must be at least 8 characters and include uppercase, lowercase, number, and special character."
+    );
   }
 
   if (newPassword !== confirmPassword) {

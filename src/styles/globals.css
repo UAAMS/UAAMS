@@ -182,4 +182,71 @@
 
 html {
   font-size: var(--font-size);
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+@supports selector(body:has(.uaams-modal-backdrop)) {
+  body:has(.uaams-modal-backdrop) {
+    overflow: hidden;
+  }
+}
+
+@supports selector(body:has(.dashboard-overlay)) {
+  body:has(.dashboard-overlay) {
+    overflow: hidden;
+  }
+}
+
+@layer components {
+  .uaams-page-title {
+    @apply text-xl font-semibold leading-tight text-slate-900 sm:text-2xl;
+  }
+
+  .uaams-page-description {
+    @apply mt-1 text-sm leading-6 text-slate-600 sm:text-base;
+  }
+
+  .uaams-section-title {
+    @apply text-base font-semibold leading-tight text-slate-900 sm:text-lg;
+  }
+
+  .uaams-disabled-control {
+    @apply disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-100;
+  }
+
+  .uaams-chart-card {
+    @apply min-w-0 overflow-hidden border border-slate-200 bg-white shadow-sm;
+  }
+
+  .uaams-chart-frame {
+    @apply min-w-0;
+    height: clamp(14rem, 56vw, 16rem);
+  }
+
+  .uaams-chart-frame--tall {
+    height: clamp(15rem, 58vw, 18rem);
+  }
+
+  .uaams-chart-card .recharts-wrapper,
+  .uaams-chart-card .recharts-surface {
+    max-width: 100%;
+  }
+
+  .uaams-chart-card .recharts-cartesian-axis-tick-value,
+  .uaams-chart-card .recharts-pie-label-text {
+    font-size: 11px;
+  }
+
+  @media (min-width: 640px) {
+    .uaams-chart-card .recharts-cartesian-axis-tick-value,
+    .uaams-chart-card .recharts-pie-label-text {
+      font-size: 12px;
+    }
+  }
 }

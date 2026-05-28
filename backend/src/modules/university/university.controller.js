@@ -14,6 +14,11 @@ const { persistMaybeDataUrl } = require("../../utils/fileStorage");
 const { normalizePaymentMethods } = require("../../utils/paymentMethods");
 const { deleteCache } = require("../../utils/cacheClient");
 const {
+  isNumberInRange,
+  isPdfUpload,
+  isValidRollNumber,
+} = require("../../utils/validators");
+const {
   sendRollNumberAssignedEmail,
   sendAdmissionLetterIssuedEmail,
 } = require("../../utils/mailer");
@@ -32,7 +37,7 @@ const {
   invalidateUniversityPublicCache,
 } = require("../../controllers/university.controller");
 
-const UNIVERSITY_RECOMMENDATION_DATASET_CACHE_KEY = "recommendations:universities:dataset:v1";
+const UNIVERSITY_RECOMMENDATION_DATASET_CACHE_KEY = "recommendations:universities:dataset:v2";
 
 const ensureObjectId = (id, message = "Invalid resource id.") => {
   if (!mongoose.isValidObjectId(id)) {
@@ -79,6 +84,41 @@ const normalizeProgramDeadlineDate = (value) => {
   return date;
 };
 
+const parseOptionalDateTime = (value, fieldLabel) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new ApiError(400, `${fieldLabel} must be a valid date and time.`);
+  }
+  return date;
+};
+
+const normalizeAnnouncementVisibilityWindow = ({ visibleFrom, expiresAt, status }) => {
+  const start = parseOptionalDateTime(visibleFrom, "Visible from");
+  const end = parseOptionalDateTime(expiresAt, "Visible until");
+
+  if (status === "published" && !end) {
+    throw new ApiError(400, "Visible until date and time is required for published announcements.");
+  }
+
+  if (start && end && end.getTime() <= start.getTime()) {
+    throw new ApiError(400, "Visible until must be after visible from.");
+  }
+
+  return {
+    visibleFrom: start,
+    expiresAt: end,
+  };
+};
+
+const hasProgramDeadlinePassed = (value) => {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  date.setHours(23, 59, 59, 999);
+  return date.getTime() < Date.now();
+};
+
 const invalidateStudentRecommendationCache = async () => {
   deleteCache(UNIVERSITY_RECOMMENDATION_DATASET_CACHE_KEY);
   await RecommendationSnapshot.deleteMany({});
@@ -108,6 +148,7 @@ const sanitizeProfilePayload = (payload = {}) => {
     "representativePosition",
     "representativeEmail",
     "representativePhone",
+    "representativeProfilePicture",
     "logo",
     "applicationFee",
     "applicationStartDate",
@@ -271,18 +312,29 @@ const updateMySettings = asyncHandler(async (req, res) => {
       preferredName: payload.shortName || payload.universityName || "university-logo",
     });
   }
+  if (Object.prototype.hasOwnProperty.call(payload, "representativeProfilePicture")) {
+    payload.representativeProfilePicture = await persistMaybeDataUrl({
+      value: payload.representativeProfilePicture,
+      folder: `university-profiles/${String(req.user._id)}`,
+      preferredName: payload.representativeName || "representative-profile",
+    });
+  }
   if (Object.prototype.hasOwnProperty.call(payload, "paymentMethods")) {
     payload.paymentMethods = normalizePaymentMethods(payload.paymentMethods);
+  }
+
+  const setOnInsert = {
+    university: req.user._id,
+  };
+  if (!Object.prototype.hasOwnProperty.call(payload, "universityName")) {
+    setOnInsert.universityName = req.user.name;
   }
 
   const profile = await UniversityProfile.findOneAndUpdate(
     { university: req.user._id },
     {
       $set: payload,
-      $setOnInsert: {
-        university: req.user._id,
-        universityName: req.user.name,
-      },
+      $setOnInsert: setOnInsert,
     },
     { new: true, upsert: true, runValidators: true }
   );
@@ -340,17 +392,39 @@ const updateMyPrograms = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Programs must be an array.");
   }
 
-  const normalizedPrograms = programs.map((program) => ({
-    name: String(program?.name || "").trim(),
-    seats: Number(program?.seats || 0),
-    feeRange: String(program?.feeRange || "").trim(),
-    requiredAggregate: Number(program?.requiredAggregate || 0),
-    deadlineDate: normalizeProgramDeadlineDate(program?.deadlineDate),
-    isAdmissionOpen: program?.isAdmissionOpen !== false,
-  }));
+  const normalizedPrograms = programs.map((program) => {
+    const deadlineDate = normalizeProgramDeadlineDate(program?.deadlineDate);
+    return {
+      name: String(program?.name || "").trim(),
+      seats: Number(program?.seats || 0),
+      feeRange: String(program?.feeRange || "").trim(),
+      requiredAggregate: Number(program?.requiredAggregate || 0),
+      deadlineDate,
+      isAdmissionOpen: program?.isAdmissionOpen !== false,
+    };
+  });
 
   if (normalizedPrograms.some((program) => !program.name)) {
     throw new ApiError(400, "Every program must include a valid name.");
+  }
+
+  if (
+    normalizedPrograms.some(
+      (program) =>
+        program.seats <= 0 ||
+        !isNumberInRange(program.requiredAggregate, 0, 100) ||
+        !program.feeRange,
+    )
+  ) {
+    throw new ApiError(400, "Every program must include seats, fee range, and aggregate values.");
+  }
+
+  if (
+    normalizedPrograms.some(
+      (program) => program.isAdmissionOpen && (!program.deadlineDate || hasProgramDeadlinePassed(program.deadlineDate)),
+    )
+  ) {
+    throw new ApiError(400, "Admission-open programs require a future application deadline.");
   }
 
   const profile = await UniversityProfile.findOneAndUpdate(
@@ -435,13 +509,28 @@ const listMyAnnouncements = asyncHandler(async (req, res) => {
 });
 
 const createMyAnnouncement = asyncHandler(async (req, res) => {
-  const { title, content, type, category, status, attachmentUrl, attachmentName } = req.body;
+  const {
+    title,
+    content,
+    type,
+    category,
+    status,
+    attachmentUrl,
+    attachmentName,
+    visibleFrom,
+    expiresAt,
+  } = req.body;
 
   if (!title || !content) {
     throw new ApiError(400, "Title and content are required.");
   }
 
   const normalizedStatus = status === "published" ? "published" : "draft";
+  const visibilityWindow = normalizeAnnouncementVisibilityWindow({
+    visibleFrom,
+    expiresAt,
+    status: normalizedStatus,
+  });
 
   const persistedAttachmentUrl = await persistMaybeDataUrl({
     value: attachmentUrl,
@@ -459,6 +548,7 @@ const createMyAnnouncement = asyncHandler(async (req, res) => {
     attachmentUrl: String(persistedAttachmentUrl || "").trim(),
     attachmentName: String(attachmentName || "").trim(),
     status: normalizedStatus,
+    ...visibilityWindow,
     publishedAt: normalizedStatus === "published" ? new Date() : null,
   });
 
@@ -507,6 +597,25 @@ const updateMyAnnouncement = asyncHandler(async (req, res) => {
   }
   if (Object.prototype.hasOwnProperty.call(updates, "attachmentName")) {
     updates.attachmentName = String(updates.attachmentName || "").trim();
+  }
+
+  const nextStatus = updates.status || announcement.status;
+  if (
+    Object.prototype.hasOwnProperty.call(updates, "visibleFrom") ||
+    Object.prototype.hasOwnProperty.call(updates, "expiresAt") ||
+    Object.prototype.hasOwnProperty.call(updates, "status")
+  ) {
+    const visibilityWindow = normalizeAnnouncementVisibilityWindow({
+      visibleFrom: Object.prototype.hasOwnProperty.call(updates, "visibleFrom")
+        ? updates.visibleFrom
+        : announcement.visibleFrom,
+      expiresAt: Object.prototype.hasOwnProperty.call(updates, "expiresAt")
+        ? updates.expiresAt
+        : announcement.expiresAt,
+      status: nextStatus,
+    });
+    updates.visibleFrom = visibilityWindow.visibleFrom;
+    updates.expiresAt = visibilityWindow.expiresAt;
   }
 
   if (updates.status === "published" && !announcement.publishedAt) {
@@ -966,8 +1075,16 @@ const upsertMyRollNumber = asyncHandler(async (req, res) => {
   ensureObjectId(req.params.applicationId, "Invalid application id.");
 
   const { number, slipFileUrl, slipFileName, eligibleForAdmissionLetter } = req.body;
-  if (!number) {
-    throw new ApiError(400, "Roll number is required.");
+  if (!isValidRollNumber(number)) {
+    throw new ApiError(400, "Enter a valid roll number.");
+  }
+
+  if (!String(slipFileUrl || "").trim()) {
+    throw new ApiError(400, "Roll number slip PDF is required.");
+  }
+
+  if (!isPdfUpload({ dataUrl: slipFileUrl, fileName: slipFileName, url: slipFileUrl })) {
+    throw new ApiError(400, "Roll number slip must be a PDF file.");
   }
 
   const application = await Application.findOne({
@@ -1124,6 +1241,10 @@ const upsertMyAdmissionLetter = asyncHandler(async (req, res) => {
 
   if (!letterNumber || !fileUrl) {
     throw new ApiError(400, "Letter number and file URL are required.");
+  }
+
+  if (!isPdfUpload({ dataUrl: fileUrl, fileName, url: fileUrl })) {
+    throw new ApiError(400, "Admission letter must be a PDF file.");
   }
 
   const application = await Application.findOne({

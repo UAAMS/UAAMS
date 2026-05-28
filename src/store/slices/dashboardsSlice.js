@@ -32,11 +32,20 @@ export const fetchUniversityDashboard = createAsyncThunk(
   },
 );
 
+const buildDashboardQuery = (filters = {}) => {
+  const params = new URLSearchParams();
+  if (filters?.period) params.set("period", filters.period);
+  if (filters?.from) params.set("from", filters.from);
+  if (filters?.to) params.set("to", filters.to);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+};
+
 export const fetchAdminDashboard = createAsyncThunk(
   "dashboards/fetchAdminDashboard",
-  async (_, { rejectWithValue }) => {
+  async (filters = {}, { rejectWithValue }) => {
     try {
-      const response = await api.get("/admin/stats");
+      const response = await api.get(`/admin/stats${buildDashboardQuery(filters)}`);
       return response?.data || null;
     } catch (error) {
       return rejectWithValue(error?.message || "Unable to load admin dashboard.");

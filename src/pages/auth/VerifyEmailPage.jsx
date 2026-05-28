@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { AuthSplitShell, authInputClass } from "../../components/shared/AuthSplitShell";
 import { useAuth } from "../../context/AuthContext";
 
 const validRoles = new Set(["student", "university", "blogger", "admin"]);
@@ -84,10 +85,11 @@ export const VerifyEmailPage = () => {
   };
 
   return (
-    <div className="mx-auto flex min-h-[80vh] w-full max-w-xl items-center px-4 py-10 sm:px-6 lg:px-8">
-      <section className="w-full rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-        <h1 className="text-2xl text-slate-900">Email Verification</h1>
-
+    <AuthSplitShell
+      eyebrow="Email verification"
+      title="Email Verification"
+      subtitle="We are checking your verification link."
+    >
         {isVerifying ? (
           <p className="mt-3 text-sm text-slate-600">Verifying your email link...</p>
         ) : null}
@@ -114,13 +116,13 @@ export const VerifyEmailPage = () => {
                 value={resendEmailInput}
                 onChange={(event) => setResendEmailInput(event.target.value)}
                 placeholder="Enter registered email"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className={authInputClass}
               />
               <button
                 type="button"
                 onClick={handleResend}
                 disabled={isResending}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-70"
+                className="w-full rounded-lg border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-70 sm:w-auto"
               >
                 {isResending ? "Sending..." : "Resend Verification Link"}
               </button>
@@ -138,7 +140,7 @@ export const VerifyEmailPage = () => {
             <button
               type="button"
               onClick={() => navigate("/register/student", { replace: true })}
-              className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white hover:bg-emerald-700"
+              className="mt-4 w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700 sm:w-auto"
             >
               Register Again
             </button>
@@ -149,12 +151,11 @@ export const VerifyEmailPage = () => {
           <button
             type="button"
             onClick={() => navigate(`/login/${loginRole}`, { replace: true })}
-            className="mt-4 rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+            className="mt-4 w-full rounded-lg border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
           >
             Go to Login
           </button>
         ) : null}
-      </section>
-    </div>
+    </AuthSplitShell>
   );
 };

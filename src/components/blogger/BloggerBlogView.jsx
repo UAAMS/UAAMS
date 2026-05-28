@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, MessageCircle, Heart, Eye } from "lucide-react";
 import { DashboardPageShell } from "../../pages/shared/DashboardPageShell";
 import { BlogCommentManager } from "../shared/BlogCommentManager";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { ImagePreviewModal } from "../shared/ImagePreviewModal";
 import { onDataUpdated } from "../../lib/socketClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { fetchBloggerPosts } from "../../store/slices/bloggerPostsSlice";
@@ -33,6 +35,8 @@ export function BloggerBlogView() {
   const [selectedPostId, setSelectedPostId] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("published");
+  const [pendingCommentId, setPendingCommentId] = useState("");
+  const [imagePreviewUrl, setImagePreviewUrl] = useState("");
 
   useEffect(() => {
     dispatch(fetchBloggerPosts());
@@ -69,15 +73,16 @@ export function BloggerBlogView() {
   const selectedPost = selectedPostId ? posts.find((p) => p.id === selectedPostId) : null;
   const selectedComments = selectedPostId ? commentsByPost[selectedPostId] : null;
 
-  const handleDeleteComment = async (commentId) => {
-    if (!window.confirm("Delete this comment and all replies?")) return;
+  const handleDeleteComment = async () => {
+    if (!pendingCommentId) return;
     try {
       await dispatch(
         deleteBloggerPostComment({
           postId: selectedPostId,
-          commentId,
+          commentId: pendingCommentId,
         }),
       ).unwrap();
+      setPendingCommentId("");
     } catch {
       // Error is shown in Redux state
     }
@@ -101,11 +106,18 @@ export function BloggerBlogView() {
       >
         <article className="rounded-lg border border-slate-200 bg-white overflow-hidden">
           {selectedPost.imageUrl && (
-            <img
-              src={selectedPost.imageUrl}
-              alt={selectedPost.title}
-              className="w-full max-h-96 object-cover"
-            />
+            <button
+              type="button"
+              onClick={() => setImagePreviewUrl(selectedPost.imageUrl)}
+              className="block w-full"
+              title="Open image preview"
+            >
+              <img
+                src={selectedPost.imageUrl}
+                alt={selectedPost.title}
+                className="max-h-96 w-full object-cover"
+              />
+            </button>
           )}
 
           <div className="p-6">
@@ -167,11 +179,25 @@ export function BloggerBlogView() {
             comments={selectedComments?.comments || []}
             loading={selectedComments?.loading || false}
             error={selectedComments?.error || mutationError}
-            onDelete={handleDeleteComment}
+            onDelete={setPendingCommentId}
             isDeletingIds={deletingCommentIds}
             emptyMessage="No comments on this post yet."
           />
         </div>
+        <ConfirmDialog
+          open={Boolean(pendingCommentId)}
+          title="Delete comment?"
+          description="This will delete the selected comment and all replies."
+          confirmLabel="Delete Comment"
+          isLoading={deletingCommentIds.includes(String(pendingCommentId))}
+          onConfirm={handleDeleteComment}
+          onCancel={() => setPendingCommentId("")}
+        />
+        <ImagePreviewModal
+          imageUrl={imagePreviewUrl}
+          alt={selectedPost.title}
+          onClose={() => setImagePreviewUrl("")}
+        />
       </DashboardPageShell>
     );
   }
@@ -189,7 +215,7 @@ export function BloggerBlogView() {
           type="text"
           value={searchTerm}
           onChange={(event) => setSearchTerm(event.target.value)}
-          placeholder="Search by title, excerpt, tags..."
+          placeholder="Search by title, short summary, tags..."
           className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <select

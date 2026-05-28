@@ -1,6 +1,8 @@
-import { ArrowLeft, BookOpen, CheckCircle2, GraduationCap, ShieldCheck } from "lucide-react";
+import { BookOpen, CheckCircle2, GraduationCap, ShieldCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 import authStudyBackground from "../../assets/auth-study-background.jpg";
+
+
 
 const authHeroStyle = {
   backgroundImage: `linear-gradient(90deg, rgba(236,253,245,0.68), rgba(255,255,255,0.16)), url(${authStudyBackground})`,
@@ -20,32 +22,40 @@ export const AuthSplitShell = ({
   const panelClass = panelSize === "wide" ? "max-w-3xl" : "max-w-md";
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-cover bg-center pl-30" style={authHeroStyle}>
+    <div className="relative min-h-screen overflow-hidden bg-cover bg-center " style={authHeroStyle}>
       <div className="absolute inset-0 bg-emerald-950/10" />
-      <div className="relative z-10 grid  min-h-screen gap-6 px-4 sm:px-8 lg:grid-cols-[minmax(360px,0.95fr)_1.05fr] lg:px-12">
-        <section className="flex min-h-screen  items-center">
+      <div className="relative z-10 grid min-h-screen items-center gap-8 px-4 sm:px-8 lg:grid-cols-[minmax(320px,0.95fr)_1.05fr] lg:px-12">
+        <section className="flex items-center justify-center lg:justify-start">
           <div
-            className={`w-full ${panelClass} h-screen  border border-white/70 bg-white/80 p-6 text-slate-900 shadow-2xl ring-1 ring-emerald-100 backdrop-blur-md sm:p-8`}
+            className={`w-full ${panelClass} h-screen overflow-y-scroll
+                        [-ms-overflow-style:none]
+                        [scrollbar-width:none]
+                        [&::-webkit-scrollbar]:hidden
+                         border border-white/70 bg-white/85 p-5
+                      text-slate-900 shadow-2xl ring-1 ring-emerald-100
+                        backdrop-blur-md sm:p-8`}
           >
             <Link
               to="/"
-              className="mb-8 inline-flex items-center gap-2 text-xs font-semibold uppercase text-emerald-700 transition-colors hover:text-emerald-900"
+              className="mb-6 inline-flex items-center gap-2 text-xs font-semibold uppercase text-emerald-700 transition-colors hover:text-emerald-900"
             >
-              <div className="flex h-14 w-14 items-center justify-center rounded-full border border-emerald-700 text-emerald-700">
-                <GraduationCap className="h-8 w-8" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-full border border-emerald-700 text-emerald-700">
+                <GraduationCap className="h-7 w-7" />
               </div>
               <p className="text-lg font-semibold uppercase text-emerald-700">UAAMS</p>
             </Link>
 
             <div className="mb-7 border-b border-emerald-100 pb-5">
-
-              <h1 className="text-3xl font-semibold text-slate-900">{title}</h1>
+              {eyebrow ? (
+                <p className="mb-2 text-xs font-semibold uppercase text-emerald-700">{eyebrow}</p>
+              ) : null}
+              <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl">{title}</h1>
               <p className="mt-2 max-w-md text-sm text-slate-600">{subtitle}</p>
             </div>
 
             {children}
 
-            {footer ? <div className="mt-6 text-sm text-slate-600">{footer}</div> : null}
+            {footer ? <div className="mt-6 text-center text-sm text-slate-600">{footer}</div> : null}
           </div>
         </section>
 

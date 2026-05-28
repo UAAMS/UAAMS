@@ -12,22 +12,27 @@
   left: 0;
   bottom: 0;
   z-index: 50;
-  width: 280px;
+  width: 100vw;
   border-right: 1px solid rgb(226 232 240);
   background-color: white;
   padding: 1rem;
   overflow-y: auto;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.15);
+  overscroll-behavior: contain;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
   transform: translateX(-100%);
-  transition: transform 200ms ease;
+  transition: transform 180ms ease;
+  max-height: 100vh;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-.dashboard-sidebar.open {
+.dashboard-sidebar.open-mobile {
   transform: translateX(0);
 }
 
 .dashboard-main {
   min-width: 0;
+  margin-left: 0;
 }
 
 .dashboard-overlay {
@@ -42,26 +47,76 @@
   display: inline-flex;
 }
 
+.dashboard-open-button {
+  display: none;
+}
+
 @media (min-width: 1024px) {
   .dashboard-shell {
-    display: grid;
-    grid-template-columns: 280px minmax(0, 1fr);
+    display: block;
   }
 
   .dashboard-sidebar {
-    position: sticky;
-    top: 0;
-    transform: none;
+    position: fixed;
+    width: 260px;
     box-shadow: none;
     height: 100vh;
+    transform: none;
+    transition: none;
+  }
+
+  /* Ensure labels always visible */
+  .dashboard-sidebar .sidebar-label {
+    display: inline-block;
+  }
+
+  .dashboard-sidebar::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+
+  .dashboard-sidebar ~ .dashboard-main {
+    margin-left: 260px;
   }
 
   .dashboard-overlay {
     display: none;
   }
 
-  .dashboard-menu-button,
+  .dashboard-menu-button {
+    display: none;
+  }
+
   .dashboard-close-button {
     display: none;
   }
+
+  .dashboard-open-button {
+    display: none;
+  }
+}
+
+/* Sidebar visual tweaks to match screenshot */
+.dashboard-sidebar .inline-flex.items-center {
+  gap: 12px;
+}
+
+.dashboard-sidebar .sidebar-label {
+  font-weight: 600;
+}
+
+.dashboard-sidebar nav a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+
+.dashboard-sidebar nav a:hover {
+  background-color: #f1f5f9;
+}
+
+.dashboard-sidebar .mt-6 > button {
+  width: calc(100% - 2rem);
 }

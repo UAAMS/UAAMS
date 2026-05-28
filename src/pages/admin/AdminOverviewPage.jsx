@@ -3,6 +3,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -10,11 +11,15 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { DashboardDateFilter } from "../shared/DashboardDateFilter";
 import { DashboardPageShell } from "../shared/DashboardPageShell";
 import { MetricGrid } from "../shared/MetricGrid";
+import { defaultDashboardDateFilter } from "../shared/dashboardAnalytics";
 import { onDataUpdated } from "../../lib/socketClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { fetchAdminDashboard } from "../../store/slices/dashboardsSlice";
+
+const applicationPieColors = ["#f59e0b", "#22c55e", "#ef4444"];
 
 export const AdminOverviewPage = () => {
   const dispatch = useAppDispatch();
@@ -24,21 +29,22 @@ export const AdminOverviewPage = () => {
     error,
   } = useAppSelector((state) => state.dashboards.admin);
   const [activeMetricLabel, setActiveMetricLabel] = useState("");
+  const [dateFilter, setDateFilter] = useState(defaultDashboardDateFilter);
   const isLoading = dashboardLoading && !stats;
 
   useEffect(() => {
-    dispatch(fetchAdminDashboard());
+    dispatch(fetchAdminDashboard(dateFilter));
     const unsubscribe = onDataUpdated((event) => {
       if (
         ["applications", "announcements", "blogs", "bloggers", "programs", "universities"].includes(
           event?.resource,
         )
       ) {
-        dispatch(fetchAdminDashboard());
+        dispatch(fetchAdminDashboard(dateFilter));
       }
     });
     return () => unsubscribe();
-  }, [dispatch]);
+  }, [dateFilter, dispatch]);
 
   const metrics = useMemo(() => {
     if (!stats) {
@@ -84,6 +90,11 @@ export const AdminOverviewPage = () => {
       { name: "Rejected", value: Number(stats?.applications?.rejected || 0) },
     ],
     [stats],
+  );
+
+  const activityTimeline = useMemo(
+    () => (Array.isArray(stats?.timeline?.activity) ? stats.timeline.activity : []),
+    [stats?.timeline?.activity],
   );
 
   const userChart = useMemo(
@@ -134,6 +145,8 @@ export const AdminOverviewPage = () => {
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
       ) : null}
 
+      <DashboardDateFilter value={dateFilter} onChange={setDateFilter} theme="indigo" />
+
       {isLoading ? (
         <div className="rounded-lg border border-slate-200 bg-white px-4 py-6 text-sm text-slate-600">
           Loading admin metrics...
@@ -147,15 +160,15 @@ export const AdminOverviewPage = () => {
       )}
 
       {!isLoading && selectedMetricChartData.length > 0 ? (
-        <article className="uaams-chart-card rounded-xl p-5">
+        <article className="uaams-chart-card rounded-xl p-4 sm:p-5">
           <h3 className="font-display mb-2 text-slate-900">{activeMetricLabel} State Graph</h3>
           <p className="mb-4 text-xs text-slate-500">Click a metric card to switch this graph.</p>
-          <div className="h-64">
+          <div className="uaams-chart-frame">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={selectedMetricChartData}>
+              <BarChart data={selectedMetricChartData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="state" />
-                <YAxis allowDecimals={false} />
+                <XAxis dataKey="state" tick={{ fontSize: 12 }} interval="preserveStartEnd" />
+                <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
                 <Tooltip />
                 <Bar dataKey="value" fill="#4f46e5" radius={[6, 6, 0, 0]} />
               </BarChart>
@@ -166,10 +179,10 @@ export const AdminOverviewPage = () => {
 
       {!isLoading && stats ? (
         <>
-          <div className="grid gap-6 xl:grid-cols-2">
-            <article className="uaams-chart-card rounded-xl p-5">
+          <div className="grid gap-6 xl:grid-cols-3">
+            <article className="uaams-chart-card rounded-xl p-4 sm:p-5">
               <h3 className="font-display mb-4 text-slate-900">Application Decisions</h3>
-              <div className="h-72">
+              <div className="uaams-chart-frame uaams-chart-frame--tall">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
@@ -178,25 +191,49 @@ export const AdminOverviewPage = () => {
                       nameKey="name"
                       cx="50%"
                       cy="50%"
-                      outerRadius={100}
-                      label
-                    />
+                      outerRadius="70%"
+                      label={false}
+                    >
+                      {applicationChart.map((item, index) => (
+                        <Cell
+                          key={`${item.name}-${index}`}
+                          fill={applicationPieColors[index % applicationPieColors.length]}
+                        />
+                      ))}
+                    </Pie>
                     <Tooltip />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
             </article>
 
-            <article className="uaams-chart-card rounded-xl p-5">
+            <article className="uaams-chart-card rounded-xl p-4 sm:p-5">
               <h3 className="font-display mb-4 text-slate-900">User Distribution</h3>
-              <div className="h-72">
+              <div className="uaams-chart-frame uaams-chart-frame--tall">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={userChart}>
+                  <BarChart data={userChart} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="name" />
-                    <YAxis allowDecimals={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} interval="preserveStartEnd" />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
                     <Tooltip />
                     <Bar dataKey="count" fill="#4f46e5" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </article>
+
+            <article className="uaams-chart-card rounded-xl p-4 sm:p-5">
+              <h3 className="font-display mb-4 text-slate-900">Platform State</h3>
+              <div className="uaams-chart-frame uaams-chart-frame--tall">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={activityTimeline} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="period" tick={{ fontSize: 12 }} interval="preserveStartEnd" />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                    <Tooltip />
+                    <Bar dataKey="applications" fill="#4f46e5" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="students" fill="#0ea5e9" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="blogs" fill="#f97316" radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

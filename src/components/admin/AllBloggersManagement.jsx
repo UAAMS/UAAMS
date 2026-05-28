@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
   deleteAdminBlogger,
@@ -30,6 +31,7 @@ function AllBloggersManagement() {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [pendingAction, setPendingAction] = useState(null);
   const activeId = mutatingKeys[0] || "";
 
   useEffect(() => {
@@ -51,25 +53,24 @@ function AllBloggersManagement() {
     [bloggers]
   );
 
-  const handleToggleStatus = async (blogger) => {
+  const handleToggleStatus = async (blogger = pendingAction?.item) => {
+    if (!blogger) return;
     const nextStatus = blogger.status === "active" ? "inactive" : "active";
     try {
       await dispatch(
         toggleAdminBloggerStatus({ bloggerId: blogger.id, status: nextStatus }),
       ).unwrap();
+      setPendingAction(null);
     } catch {
       // Errors are surfaced from Redux state.
     }
   };
 
-  const handleDeleteBlogger = async (blogger) => {
-    const confirmed = window.confirm(
-      `Delete blogger "${blogger.name}"?\nThis will remove the account and blog posts created by this blogger.`,
-    );
-    if (!confirmed) return;
-
+  const handleDeleteBlogger = async (blogger = pendingAction?.item) => {
+    if (!blogger) return;
     try {
       await dispatch(deleteAdminBlogger(blogger.id)).unwrap();
+      setPendingAction(null);
     } catch {
       // Errors are surfaced from Redux state.
     }
@@ -78,11 +79,11 @@ function AllBloggersManagement() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-slate-900 mb-2">Bloggers Management</h1>
-        <p className="text-slate-600">Manage blogger accounts across all universities.</p>
+        <h1 className="uaams-page-title">Bloggers Management</h1>
+        <p className="uaams-page-description">Manage blogger accounts across all universities.</p>
       </div>
 
-      <div className="grid md:grid-cols-5 gap-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Total" value={stats.total} />
         <StatCard label="Active" value={stats.active} />
         <StatCard label="Inactive" value={stats.inactive} />
@@ -167,7 +168,7 @@ function AllBloggersManagement() {
                   </span>
                   <button
                     type="button"
-                    onClick={() => handleToggleStatus(blogger)}
+                    onClick={() => setPendingAction({ type: "status", item: blogger })}
                     disabled={Boolean(activeId)}
                     className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-70"
                   >
@@ -175,7 +176,7 @@ function AllBloggersManagement() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleDeleteBlogger(blogger)}
+                    onClick={() => setPendingAction({ type: "delete", item: blogger })}
                     disabled={Boolean(activeId)}
                     className="rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 disabled:opacity-70"
                   >
@@ -187,6 +188,24 @@ function AllBloggersManagement() {
           ))}
         </div>
       ) : null}
+      <ConfirmDialog
+        open={Boolean(pendingAction)}
+        title={pendingAction?.type === "delete" ? "Delete blogger?" : "Change blogger status?"}
+        description={
+          pendingAction?.type === "delete"
+            ? `This will remove ${pendingAction?.item?.name || "this blogger"} and their posts.`
+            : `Set ${pendingAction?.item?.name || "this blogger"} to ${
+                pendingAction?.item?.status === "active" ? "inactive" : "active"
+              }.`
+        }
+        confirmLabel={pendingAction?.type === "delete" ? "Delete Blogger" : "Update Status"}
+        tone={pendingAction?.type === "delete" ? "danger" : "success"}
+        isLoading={Boolean(activeId)}
+        onConfirm={() =>
+          pendingAction?.type === "delete" ? handleDeleteBlogger() : handleToggleStatus()
+        }
+        onCancel={() => setPendingAction(null)}
+      />
     </div>
   );
 }

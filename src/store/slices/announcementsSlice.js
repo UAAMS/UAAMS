@@ -15,7 +15,12 @@ const formatDate = (value) => {
 const normalizeAnnouncement = (item) => ({
   id: String(item?._id || item?.id || ""),
   university:
-    (typeof item?.university === "object" ? item?.university?.name : "") || "University",
+    item?.universityProfile?.universityName ||
+    (typeof item?.university === "object" ? item?.university?.name : "") ||
+    "University",
+  universityLogo: item?.universityProfile?.logo || "",
+  representativeName: item?.universityProfile?.representativeName || "",
+  representativeProfilePicture: item?.universityProfile?.representativeProfilePicture || "",
   title: item?.title || "",
   content: item?.content || "",
   date: formatDate(item?.publishedAt || item?.createdAt),
@@ -23,6 +28,8 @@ const normalizeAnnouncement = (item) => ({
   category: item?.category || "General",
   attachmentUrl: item?.attachmentUrl || "",
   attachmentName: item?.attachmentName || "",
+  visibleFrom: item?.visibleFrom || "",
+  expiresAt: item?.expiresAt || "",
 });
 
 export const fetchStudentAnnouncements = createAsyncThunk(

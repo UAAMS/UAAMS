@@ -24,6 +24,7 @@ const defaultSettings = {
   representativePosition: "",
   representativeEmail: "",
   representativePhone: "",
+  representativeProfilePicture: "",
   logo: "",
   applicationFee: "0",
   applicationStartDate: "",
@@ -71,6 +72,7 @@ export const buildInitialUniversityProfile = (initialName = "University") => ({
   representativePosition: "",
   representativeEmail: "",
   representativePhone: "",
+  representativeProfilePicture: "",
   logo: "",
 });
 
