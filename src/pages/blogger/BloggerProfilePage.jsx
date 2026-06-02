@@ -4,10 +4,13 @@ import { Avatar } from "../../components/shared/Avatar";
 import { useAuth } from "../../context/AuthContext";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
 import {
+  alphabeticNameInputPattern,
+  emailPattern,
   isSupportedProfileImage,
   isValidEmail,
   isValidName,
   isValidPhone,
+  sanitizeAlphabeticNameInput,
 } from "../../lib/validation";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
@@ -38,7 +41,7 @@ const isValidUrl = (value) => {
 };
 
 const validateProfile = (profile) => {
-  if (!isValidName(profile.name)) return "Enter a valid blogger name.";
+  if (!isValidName(profile.name)) return "Blogger name can contain alphabetic letters and spaces only.";
   if (!isValidEmail(profile.email)) return "Enter a valid email address.";
   if (!String(profile.username || "").trim()) return "Username is required.";
   if (profile.phone && !isValidPhone(profile.phone)) return "Enter a valid mobile number.";
@@ -162,7 +165,7 @@ export function BloggerProfilePage() {
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Name" value={formData.name} onChange={(value) => updateField("name", value)} required />
+              <Field label="Name" value={formData.name} onChange={(value) => updateField("name", value)} alphaOnly required />
               <Field label="Username" value={formData.username} onChange={(value) => updateField("username", value)} required />
               <Field label="Email" type="email" value={formData.email} onChange={(value) => updateField("email", value)} required />
               <Field label="Phone" value={formData.phone} onChange={(value) => updateField("phone", value)} />
@@ -187,15 +190,25 @@ export function BloggerProfilePage() {
   );
 }
 
-function Field({ label, value, onChange, type = "text", required = false }) {
+function Field({ label, value, onChange, type = "text", required = false, alphaOnly = false }) {
   return (
     <div>
       <label className="mb-2 block text-sm text-slate-700">{label}</label>
       <input
         type={type}
         value={value || ""}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) =>
+          onChange(alphaOnly ? sanitizeAlphabeticNameInput(event.target.value) : event.target.value)
+        }
         required={required}
+        pattern={type === "email" ? emailPattern.source : alphaOnly ? alphabeticNameInputPattern.source : undefined}
+        title={
+          type === "email"
+            ? "Enter a valid email address."
+            : alphaOnly
+              ? "Use alphabetic letters and spaces only."
+              : undefined
+        }
         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
       />
     </div>

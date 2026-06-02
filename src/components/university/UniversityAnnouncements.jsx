@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Calendar, Edit, Paperclip, Plus, Trash2 } from "lucide-react";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { HighlightText } from "../shared/HighlightText";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
@@ -292,8 +293,12 @@ function UniversityAnnouncements() {
                       {announcement.status}
                     </span>
                   </div>
-                  <h3 className="text-slate-900 mb-2">{announcement.title}</h3>
-                  <p className="text-sm text-slate-600 whitespace-pre-wrap">{announcement.content}</p>
+                  <h3 className="text-slate-900 mb-2">
+                    <HighlightText text={announcement.title} query={searchTerm} />
+                  </h3>
+                  <p className="text-sm text-slate-600 whitespace-pre-wrap">
+                    <HighlightText text={announcement.content} query={searchTerm} />
+                  </p>
                   {announcement.attachmentUrl ? (
                     <a
                       href={announcement.attachmentUrl}

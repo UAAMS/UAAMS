@@ -1,5 +1,6 @@
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
-const namePattern = /^[A-Za-z][A-Za-z .'-]{1,119}$/;
+const namePattern = /^(?=.{2,120}$)[A-Za-z]+(?: [A-Za-z]+)*$/;
+const alphabeticNameInputPattern = /^[A-Za-z ]*$/;
 const phonePattern = /^(\+92|0)?[ -]?3\d{2}[ -]?\d{7}$/;
 const cnicPattern = /^\d{5}-?\d{7}-?\d$/;
 const transactionReferencePattern = /^[A-Za-z0-9][A-Za-z0-9._/-]{5,63}$/;
@@ -49,6 +50,11 @@ const getPasswordChecks = (value) =>
 
 const isStrongPassword = (value) => getPasswordChecks(value).every((rule) => rule.met);
 
+const sanitizeAlphabeticNameInput = (value) =>
+  String(value || "")
+    .replace(/[^A-Za-z ]+/g, "")
+    .replace(/\s{2,}/g, " ");
+
 const getPasswordStrength = (value) => {
   const metCount = getPasswordChecks(value).filter((rule) => rule.met).length;
   if (metCount <= 2) return { label: "Weak", percent: 30, className: "bg-red-500" };
@@ -85,6 +91,7 @@ const isNumberInRange = (value, min = 0, max = Number.MAX_SAFE_INTEGER) => {
 export {
   emailPattern,
   namePattern,
+  alphabeticNameInputPattern,
   phonePattern,
   cnicPattern,
   transactionReferencePattern,
@@ -96,6 +103,7 @@ export {
   isValidCnic,
   isValidTransactionReference,
   isValidRollNumber,
+  sanitizeAlphabeticNameInput,
   getPasswordChecks,
   getPasswordStrength,
   isStrongPassword,

@@ -99,12 +99,32 @@ export const upsertUniversityAdmissionLetterRecord = createAsyncThunk(
   },
 );
 
+export const deleteUniversityApplicationRecord = createAsyncThunk(
+  "universityApplicationRecords/deleteUniversityApplicationRecord",
+  async ({ applicationId, recordType }, { rejectWithValue }) => {
+    try {
+      await api.del(`/applications/university/me/${applicationId}`);
+      return {
+        applicationId: String(applicationId || ""),
+        recordType: recordType === "admissionLetters" ? "admissionLetters" : "rollNumbers",
+      };
+    } catch (error) {
+      return rejectWithValue({
+        message: error?.message || "Unable to delete application record.",
+        applicationId: String(applicationId || ""),
+        recordType: recordType === "admissionLetters" ? "admissionLetters" : "rollNumbers",
+      });
+    }
+  },
+);
+
 const createRecordState = () => ({
   items: [],
   loading: false,
   error: "",
   savingId: "",
   saveError: "",
+  deletingIds: [],
 });
 
 const universityApplicationRecordsSlice = createSlice({
@@ -181,6 +201,40 @@ const universityApplicationRecordsSlice = createSlice({
       .addCase(upsertUniversityAdmissionLetterRecord.rejected, (state, action) => {
         state.admissionLetters.savingId = "";
         state.admissionLetters.saveError = action.payload || "Unable to save admission letter.";
+      })
+      .addCase(deleteUniversityApplicationRecord.pending, (state, action) => {
+        const applicationId = String(action.meta.arg?.applicationId || "");
+        const recordType =
+          action.meta.arg?.recordType === "admissionLetters" ? "admissionLetters" : "rollNumbers";
+        state[recordType].deletingIds.push(applicationId);
+        state[recordType].error = "";
+      })
+      .addCase(deleteUniversityApplicationRecord.fulfilled, (state, action) => {
+        const applicationId = String(action.payload?.applicationId || "");
+        const recordType =
+          action.payload?.recordType === "admissionLetters" ? "admissionLetters" : "rollNumbers";
+        state[recordType].deletingIds = state[recordType].deletingIds.filter(
+          (item) => item !== applicationId,
+        );
+        state.rollNumbers.items = state.rollNumbers.items.filter((item) => item.id !== applicationId);
+        state.admissionLetters.items = state.admissionLetters.items.filter(
+          (item) => item.id !== applicationId,
+        );
+      })
+      .addCase(deleteUniversityApplicationRecord.rejected, (state, action) => {
+        const payload = action.payload || {};
+        const applicationId = String(
+          payload.applicationId || action.meta.arg?.applicationId || "",
+        );
+        const recordType =
+          payload.recordType === "admissionLetters" || action.meta.arg?.recordType === "admissionLetters"
+            ? "admissionLetters"
+            : "rollNumbers";
+        state[recordType].deletingIds = state[recordType].deletingIds.filter(
+          (item) => item !== applicationId,
+        );
+        state[recordType].error =
+          payload.message || "Unable to delete application record.";
       });
   },
 });

@@ -16,6 +16,8 @@ import { Input } from "../ui/input";
 import { useAuth } from "../../context/AuthContext";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
 import {
+  alphabeticNameInputPattern,
+  emailPattern,
   isNumberInRange,
   isSupportedDocumentFile,
   isSupportedProfileImage,
@@ -23,6 +25,7 @@ import {
   isValidEmail,
   isValidName,
   isValidPhone,
+  sanitizeAlphabeticNameInput,
 } from "../../lib/validation";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
@@ -145,13 +148,13 @@ function StudentProfile({ studentId, initialName }) {
     setStatusTone("info");
 
     if (!isValidName(profileData.fullName)) {
-      setStatusMessage("Enter a valid full name.");
+      setStatusMessage("Full name can contain alphabetic letters and spaces only.");
       setStatusTone("error");
       return;
     }
 
     if (profileData.fatherName && !isValidName(profileData.fatherName)) {
-      setStatusMessage("Enter a valid father's name.");
+      setStatusMessage("Father's name can contain alphabetic letters and spaces only.");
       setStatusTone("error");
       return;
     }
@@ -381,18 +384,22 @@ function StudentProfile({ studentId, initialName }) {
             <label className="block text-slate-700 mb-2 text-sm">Full Name</label>
             <Input
               value={profileData.fullName}
-              onChange={(e) => handleChange("fullName", e.target.value)}
+              onChange={(e) => handleChange("fullName", sanitizeAlphabeticNameInput(e.target.value))}
               disabled={!isEditing}
               placeholder="Your full name"
+              pattern={alphabeticNameInputPattern.source}
+              title="Use alphabetic letters and spaces only."
             />
           </div>
           <div>
             <label className="block text-slate-700 mb-2 text-sm">Father's Name</label>
             <Input
               value={profileData.fatherName}
-              onChange={(e) => handleChange("fatherName", e.target.value)}
+              onChange={(e) => handleChange("fatherName", sanitizeAlphabeticNameInput(e.target.value))}
               disabled={!isEditing}
               placeholder="Father's full name"
+              pattern={alphabeticNameInputPattern.source}
+              title="Use alphabetic letters and spaces only."
             />
           </div>
           <div>
@@ -480,6 +487,8 @@ function StudentProfile({ studentId, initialName }) {
               onChange={(e) => handleChange("email", e.target.value)}
               disabled={!isEditing}
               placeholder="your.email@example.com"
+              pattern={emailPattern.source}
+              title="Enter a valid email address."
             />
           </div>
           <div>

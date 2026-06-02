@@ -7,6 +7,13 @@ const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/ApiError");
 const { getCache, setCache } = require("../utils/cacheClient");
 const { persistMaybeDataUrl } = require("../utils/fileStorage");
+const {
+  isNumberInRange,
+  isValidCnic,
+  isValidEmail,
+  isValidName,
+  isValidPhone,
+} = require("../utils/validators");
 const { ROLES, UNIVERSITY_APPROVAL, USER_STATUS } = require("../constants/roles");
 
 const UNIVERSITY_RECOMMENDATION_DATASET_CACHE_KEY = "recommendations:universities:dataset:v2";
@@ -106,7 +113,9 @@ const filterRecommendationsByRequest = ({ recommendations = [], minAggregate, ma
         ? item.programRecommendations
         : [];
       const filteredPrograms = allProgramRecommendations
-        .filter((program) => Number(program?.requiredAggregate || 0) >= minAggregate)
+        .filter((program) =>
+          minAggregate === null || Number(program?.requiredAggregate || 0) <= minAggregate,
+        )
         .sort((a, b) => Number(b?.matchScore || 0) - Number(a?.matchScore || 0));
 
       if (filteredPrograms.length === 0) {
@@ -206,6 +215,63 @@ const updateMyProfile = asyncHandler(async (req, res) => {
   delete payload.user;
   delete payload._id;
 
+  if (Object.prototype.hasOwnProperty.call(payload, "fullName")) {
+    payload.fullName = String(payload.fullName || "").trim();
+    if (!isValidName(payload.fullName)) {
+      throw new ApiError(400, "Enter a valid full name.");
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "fatherName")) {
+    payload.fatherName = String(payload.fatherName || "").trim();
+    if (payload.fatherName && !isValidName(payload.fatherName)) {
+      throw new ApiError(400, "Enter a valid father's name.");
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "email")) {
+    payload.email = String(payload.email || "").trim().toLowerCase();
+    if (payload.email && !isValidEmail(payload.email)) {
+      throw new ApiError(400, "Enter a valid email address.");
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "phone")) {
+    payload.phone = String(payload.phone || "").trim();
+    if (payload.phone && !isValidPhone(payload.phone)) {
+      throw new ApiError(400, "Enter a valid Pakistani mobile number.");
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "alternatePhone")) {
+    payload.alternatePhone = String(payload.alternatePhone || "").trim();
+    if (payload.alternatePhone && !isValidPhone(payload.alternatePhone)) {
+      throw new ApiError(400, "Enter a valid alternate Pakistani mobile number.");
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "cnic")) {
+    payload.cnic = String(payload.cnic || "").trim();
+    if (payload.cnic && !isValidCnic(payload.cnic)) {
+      throw new ApiError(400, "Enter a valid CNIC or B-form number.");
+    }
+  }
+
+  const marksChecks = [
+    ["Matric total marks", payload.matricTotalMarks, 1, 2000],
+    ["Matric obtained marks", payload.matricObtainedMarks, 0, Number(payload.matricTotalMarks || 2000)],
+    ["Intermediate total marks", payload.interTotalMarks, 1, 2000],
+    ["Intermediate obtained marks", payload.interObtainedMarks, 0, Number(payload.interTotalMarks || 2000)],
+  ];
+
+  const invalidMarks = marksChecks.find(
+    ([, value, min, max]) =>
+      value !== undefined && String(value || "").trim() && !isNumberInRange(value, min, max)
+  );
+  if (invalidMarks) {
+    throw new ApiError(400, `${invalidMarks[0]} must be a valid number within the allowed range.`);
+  }
+
   const fileFieldMap = {
     profilePicture: "profile-picture",
     domicileDocument: "domicile-document",
@@ -240,7 +306,7 @@ const updateMyProfile = asyncHandler(async (req, res) => {
 });
 
 const getRecommendations = asyncHandler(async (req, res) => {
-  const minAggregate = Number(req.query.minAggregate || 0);
+  const minAggregate = req.query.minAggregate ? Number(req.query.minAggregate) : null;
   const maxFee = Number(req.query.maxFee || Number.MAX_SAFE_INTEGER);
   const typeFilter = (req.query.type || "all").toLowerCase();
   const studentProfile = await StudentProfile.findOne({ user: req.user._id })

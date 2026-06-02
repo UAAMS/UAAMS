@@ -67,53 +67,52 @@ function UniversityRecommendations() {
     };
   }, [dispatch]);
 
-  const filteredUniversities = useMemo(
-    () => {
-      const minimumAggregate =
-        selectedFilters.minAggregate === "" ? 0 : Number(selectedFilters.minAggregate);
-      const maximumFee =
-        selectedFilters.maxFee === "" ? Number.MAX_SAFE_INTEGER : Number(selectedFilters.maxFee);
+  const filteredUniversities = useMemo(() => {
+    const minimumAggregate =
+      selectedFilters.minAggregate === "" ? null : Number(selectedFilters.minAggregate);
+    const maximumFee =
+      selectedFilters.maxFee === "" ? Number.MAX_SAFE_INTEGER : Number(selectedFilters.maxFee);
 
-      return universities
-        .filter((university) => {
-          const programRecommendations = resolveProgramRecommendations(university);
+    return universities
+      .map((university) => {
+        const programRecommendations = resolveProgramRecommendations(university);
+        const filteredProgramRecommendations = programRecommendations.filter(
+          (program) =>
+            minimumAggregate === null ||
+            Number(program.requiredAggregate || 0) <= minimumAggregate,
+        );
 
-          if (
-            selectedFilters.type !== "all" &&
-            String(university.type || "").toLowerCase() !== selectedFilters.type
-          ) {
-            return false;
-          }
+        return {
+          university,
+          filteredProgramRecommendations,
+        };
+      })
+      .filter(({ university, filteredProgramRecommendations }) => {
+        if (
+          selectedFilters.type !== "all" &&
+          String(university.type || "").toLowerCase() !== selectedFilters.type
+        ) {
+          return false;
+        }
 
-          if (
-            programRecommendations.length > 0 &&
-            !programRecommendations.some(
-              (program) => Number(program.requiredAggregate || 0) >= minimumAggregate,
-            )
-          ) {
-            return false;
-          }
+        if (Number(university.applicationFee || 0) > maximumFee) {
+          return false;
+        }
 
-          if (Number(university.applicationFee || 0) > maximumFee) {
-            return false;
-          }
-
-          return true;
-        })
-        .sort((a, b) => {
-          const bestA = Math.max(
-            Number(a.matchScore || 0),
-            ...resolveProgramRecommendations(a).map((item) => Number(item.matchScore || 0)),
-          );
-          const bestB = Math.max(
-            Number(b.matchScore || 0),
-            ...resolveProgramRecommendations(b).map((item) => Number(item.matchScore || 0)),
-          );
-          return bestB - bestA;
-        });
-    },
-    [universities, selectedFilters],
-  );
+        return filteredProgramRecommendations.length > 0;
+      })
+      .sort((a, b) => {
+        const bestA = Math.max(
+          Number(a.university.matchScore || 0),
+          ...a.filteredProgramRecommendations.map((item) => Number(item.matchScore || 0)),
+        );
+        const bestB = Math.max(
+          Number(b.university.matchScore || 0),
+          ...b.filteredProgramRecommendations.map((item) => Number(item.matchScore || 0)),
+        );
+        return bestB - bestA;
+      });
+  }, [universities, selectedFilters]);
 
   return (
     <div className="space-y-6">
@@ -200,21 +199,25 @@ function UniversityRecommendations() {
       ) : null}
 
       <div className="space-y-4">
-        {filteredUniversities.map((university) => (
-          <UniversityCard key={university.id} university={university} />
+        {filteredUniversities.map(({ university, filteredProgramRecommendations }) => (
+          <UniversityCard
+            key={university.id}
+            university={university}
+            filteredPrograms={filteredProgramRecommendations}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function UniversityCard({ university }) {
+function UniversityCard({ university, filteredPrograms }) {
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const logoUrl = university.logo || university.representativeProfilePicture || "";
   const programRecommendations = useMemo(
-    () => resolveProgramRecommendations(university),
-    [university],
+    () => filteredPrograms ?? resolveProgramRecommendations(university),
+    [filteredPrograms, university],
   );
   const bestProgramMatch = useMemo(
     () =>

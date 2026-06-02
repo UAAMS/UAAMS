@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { HighlightText } from "../shared/HighlightText";
 import { getFileNameFromPath, readFileAsDataUrl } from "../../lib/fileDataUrl";
 import { isPdfFile } from "../../lib/validation";
 import { onDataUpdated } from "../../lib/socketClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
+  deleteUniversityApplicationRecord,
   fetchUniversityAdmissionLetterRecords,
   upsertUniversityAdmissionLetterRecord,
 } from "../../store/slices/universityApplicationRecordsSlice";
@@ -34,6 +37,7 @@ function AdmissionLetterManagement() {
     loading: isLoading,
     error,
     savingId,
+    deletingIds,
   } = useAppSelector((state) => state.universityApplicationRecords.admissionLetters);
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -44,7 +48,9 @@ function AdmissionLetterManagement() {
   const [selectedApplicationId, setSelectedApplicationId] = useState("");
   const [formData, setFormData] = useState(initialFormState);
   const [formError, setFormError] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const isSaving = Boolean(selectedApplicationId) && savingId === selectedApplicationId;
+  const isDeletingTarget = Boolean(deleteTarget?.id) && deletingIds.includes(deleteTarget.id);
 
   useEffect(() => {
     dispatch(fetchUniversityAdmissionLetterRecords());
@@ -156,6 +162,24 @@ function AdmissionLetterManagement() {
     }
   };
 
+  const handleDeleteApplication = async () => {
+    if (!deleteTarget?.id) return;
+    try {
+      await dispatch(
+        deleteUniversityApplicationRecord({
+          applicationId: deleteTarget.id,
+          recordType: "admissionLetters",
+        }),
+      ).unwrap();
+      if (selectedApplicationId === deleteTarget.id) {
+        closeUploadForm();
+      }
+      setDeleteTarget(null);
+    } catch {
+      // Error is surfaced from Redux state.
+    }
+  };
+
   const handleLetterFileChange = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -249,10 +273,10 @@ function AdmissionLetterManagement() {
             <article key={application.id} className="rounded-lg border border-slate-200 bg-white p-5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
-                  <h3 className="text-slate-900">{application.studentName}</h3>
-                  <p className="text-sm text-slate-600">{application.email}</p>
+                  <h3 className="text-slate-900"><HighlightText text={application.studentName} query={searchTerm} /></h3>
+                  <p className="text-sm text-slate-600"><HighlightText text={application.email} query={searchTerm} /></p>
                   <p className="text-xs text-slate-500 mt-1">
-                    {application.applicationCode} | {application.program} | {application.aggregate}%
+                    <HighlightText text={application.applicationCode} query={searchTerm} /> | <HighlightText text={application.program} query={searchTerm} /> | {application.aggregate}%
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
                     Roll Number: {application.rollNumber.number || "Not assigned"}
@@ -317,6 +341,16 @@ function AdmissionLetterManagement() {
                   >
                     <Plus className="h-3.5 w-3.5" />
                     {application.admissionLetter.issued ? "Update" : "Issue"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTarget(application)}
+                    disabled={deletingIds.includes(application.id)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 disabled:opacity-60"
+                    title="Delete application record"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
                   </button>
                 </div>
               </div>
@@ -407,6 +441,18 @@ function AdmissionLetterManagement() {
           </div>
         </div>
       ) : null}
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="Delete application record?"
+        description={`This will permanently delete ${
+          deleteTarget?.applicationCode || "this application"
+        } from applications, roll numbers, and admission letters.`}
+        confirmLabel="Delete Record"
+        tone="danger"
+        isLoading={isDeletingTarget}
+        onConfirm={handleDeleteApplication}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

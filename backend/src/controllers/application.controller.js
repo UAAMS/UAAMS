@@ -23,6 +23,7 @@ const {
   isSupportedProfileImageUpload,
   isValidCnic,
   isValidEmail,
+  isValidName,
   isValidPhone,
   isValidRollNumber,
   isValidTransactionReference,
@@ -170,12 +171,16 @@ const normalizeApplicationFormData = async (formData, userId) => {
 
 const validateIncomingApplicationFormData = (formData = {}) => {
   const payload = formData && typeof formData === "object" && !Array.isArray(formData) ? formData : {};
+  const fullName = String(payload["1"] || payload.fullName || "").trim();
   const email = String(payload["2"] || payload.email || "").trim();
   const phone = String(payload["3"] || payload.phone || "").trim();
   const cnic = String(payload["4"] || payload.cnic || "").trim();
   const matricMarks = payload["7"] || payload.matric || "";
   const interMarks = payload["8"] || payload.fsc || "";
 
+  if (fullName && !isValidName(fullName)) {
+    throw new ApiError(400, "Enter a valid full name.");
+  }
   if (email && !isValidEmail(email)) {
     throw new ApiError(400, "Enter a valid email address.");
   }
@@ -521,16 +526,19 @@ const createApplication = asyncHandler(async (req, res) => {
     status,
   });
 
-  emitDataUpdate({
-    resource: "applications",
-    action: "created",
-    userIds: [String(req.user._id), String(university._id)],
-    payload: {
-      applicationId: String(application._id),
-      universityId: String(university._id),
-      status: application.status,
-    },
-  });
+  // Only notify university when application is submitted (payment completed), not when just saved as draft
+  if (status === "pending") {
+    emitDataUpdate({
+      resource: "applications",
+      action: "created",
+      userIds: [String(req.user._id), String(university._id)],
+      payload: {
+        applicationId: String(application._id),
+        universityId: String(university._id),
+        status: application.status,
+      },
+    });
+  }
 
   return res.status(201).json({
     success: true,
@@ -940,6 +948,47 @@ const deleteMyDraftApplication = asyncHandler(async (req, res) => {
   });
 });
 
+const deleteUniversityApplication = asyncHandler(async (req, res) => {
+  ensureObjectId(req.params.id, "Invalid application id.");
+
+  const query = { _id: req.params.id };
+  if (req.user.role === ROLES.UNIVERSITY) {
+    query.university = req.user._id;
+  } else if (req.user.role !== ROLES.ADMIN) {
+    throw new ApiError(403, "Only universities and admins can delete application records.");
+  }
+
+  const application = await Application.findOneAndDelete(query);
+  if (!application) {
+    throw new ApiError(404, "Application not found.");
+  }
+
+  emitDataUpdate({
+    resource: "applications",
+    action: "deleted",
+    userIds: [String(application.student), String(application.university)],
+    payload: {
+      applicationId: String(application._id),
+      universityId: String(application.university),
+    },
+  });
+
+  emitDataUpdate({
+    resource: "merit-lists",
+    action: "updated",
+    roles: ["student"],
+    payload: {
+      universityId: String(application.university),
+      applicationId: String(application._id),
+    },
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "Application record deleted successfully.",
+  });
+});
+
 const getUniversityApplications = asyncHandler(async (req, res) => {
   const { page, limit, skip } = getPagination(req.query);
   const query = {};
@@ -1296,6 +1345,7 @@ module.exports = {
   payApplicationFee,
   updateMyDraftApplication,
   deleteMyDraftApplication,
+  deleteUniversityApplication,
   getUniversityApplications,
   updateApplicationStatus,
   assignRollNumber,

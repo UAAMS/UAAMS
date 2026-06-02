@@ -8,7 +8,13 @@ const asyncHandler = require("../utils/asyncHandler");
 const getPagination = require("../utils/pagination");
 const { getCache, setCache, invalidateCachePrefix } = require("../utils/cacheClient");
 const { sendBloggerCredentialsEmail } = require("../utils/mailer");
-const { isStrongPassword, isValidEmail, isValidName, isValidPhone } = require("../utils/validators");
+const {
+  isNumberInRange,
+  isStrongPassword,
+  isValidEmail,
+  isValidName,
+  isValidPhone,
+} = require("../utils/validators");
 const { emitDataUpdate } = require("../utils/socket");
 const { persistMaybeDataUrl } = require("../utils/fileStorage");
 const { getSystemApplicationTemplate, SYSTEM_TEMPLATE_ID } = require("../config/systemApplicationTemplate");
@@ -24,6 +30,78 @@ const hasDeadlinePassed = (value) => {
   if (Number.isNaN(date.getTime())) return false;
   date.setHours(23, 59, 59, 999);
   return date.getTime() < Date.now();
+};
+
+const isValidOrganizationName = (value) =>
+  /^[A-Za-z][A-Za-z0-9 .,'&()/-]{2,159}$/.test(String(value || "").trim());
+
+const validateUniversityProfilePayload = (payload) => {
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "universityName") &&
+    !isValidOrganizationName(payload.universityName)
+  ) {
+    throw new ApiError(400, "Enter a valid university name.");
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "email")) {
+    payload.email = String(payload.email || "").trim().toLowerCase();
+    if (!isValidEmail(payload.email)) {
+      throw new ApiError(400, "Enter a valid university email address.");
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "phone")) {
+    payload.phone = String(payload.phone || "").trim();
+    if (payload.phone && !isValidPhone(payload.phone)) {
+      throw new ApiError(400, "Enter a valid university mobile number.");
+    }
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "representativeName") &&
+    String(payload.representativeName || "").trim() &&
+    !isValidName(payload.representativeName)
+  ) {
+    throw new ApiError(400, "Enter a valid representative name.");
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "representativeEmail")) {
+    payload.representativeEmail = String(payload.representativeEmail || "").trim().toLowerCase();
+    if (payload.representativeEmail && !isValidEmail(payload.representativeEmail)) {
+      throw new ApiError(400, "Enter a valid representative email address.");
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "representativePhone")) {
+    payload.representativePhone = String(payload.representativePhone || "").trim();
+    if (payload.representativePhone && !isValidPhone(payload.representativePhone)) {
+      throw new ApiError(400, "Enter a valid representative mobile number.");
+    }
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "established") &&
+    String(payload.established || "").trim() &&
+    !isNumberInRange(payload.established, 1800, new Date().getFullYear())
+  ) {
+    throw new ApiError(400, "Established year must be a valid year.");
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "totalStudents") &&
+    String(payload.totalStudents || "").trim() &&
+    !isNumberInRange(payload.totalStudents, 0, 1000000)
+  ) {
+    throw new ApiError(400, "Total students must be a valid number.");
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "totalPrograms") &&
+    String(payload.totalPrograms || "").trim() &&
+    !isNumberInRange(payload.totalPrograms, 0, 10000)
+  ) {
+    throw new ApiError(400, "Total programs must be a valid number.");
+  }
 };
 
 const defaultApplicationFields = [
@@ -378,6 +456,7 @@ const updateMyProfile = asyncHandler(async (req, res) => {
   const payload = { ...req.body };
   delete payload.university;
   delete payload._id;
+  validateUniversityProfilePayload(payload);
   if (Object.prototype.hasOwnProperty.call(payload, "logo")) {
     payload.logo = await persistMaybeDataUrl({
       value: payload.logo,

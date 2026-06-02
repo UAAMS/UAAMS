@@ -18,7 +18,12 @@ export function DashboardDateFilter({ value, onChange, theme = "emerald" }) {
   const hasRange = isDateFilterActive(filter);
 
   const updateFilter = (updates) => {
-    onChange?.({ ...filter, ...updates });
+    const nextFilter = { ...filter, ...updates };
+    if (nextFilter.from && nextFilter.to && nextFilter.to < nextFilter.from) {
+      nextFilter.to = nextFilter.from;
+    }
+
+    onChange?.(nextFilter);
   };
 
   const resetRange = () => {
@@ -52,6 +57,7 @@ export function DashboardDateFilter({ value, onChange, theme = "emerald" }) {
           <input
             type="date"
             value={filter.from}
+            max={filter.to || undefined}
             onChange={(event) => updateFilter({ from: event.target.value })}
             className={`w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 ${focusRing}`}
           />

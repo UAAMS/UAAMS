@@ -7,6 +7,7 @@ const asyncHandler = require("../../utils/asyncHandler");
 const getPagination = require("../../utils/pagination");
 const { emitDataUpdate } = require("../../utils/socket");
 const { persistMaybeDataUrl } = require("../../utils/fileStorage");
+const { isValidEmail, isValidName, isValidPhone } = require("../../utils/validators");
 
 const ensureObjectId = (id, message = "Invalid resource id.") => {
   if (!mongoose.isValidObjectId(id)) {
@@ -82,8 +83,8 @@ const updateMyProfile = asyncHandler(async (req, res) => {
 
   if (Object.prototype.hasOwnProperty.call(updates, "email")) {
     const normalizedEmail = String(updates.email || "").trim().toLowerCase();
-    if (!normalizedEmail) {
-      throw new ApiError(400, "Email cannot be empty.");
+    if (!isValidEmail(normalizedEmail)) {
+      throw new ApiError(400, "Enter a valid email address.");
     }
 
     const existingEmail = await User.findOne({
@@ -114,10 +115,16 @@ const updateMyProfile = asyncHandler(async (req, res) => {
 
   if (Object.prototype.hasOwnProperty.call(updates, "name")) {
     updates.name = String(updates.name || "").trim();
+    if (!isValidName(updates.name)) {
+      throw new ApiError(400, "Enter a valid blogger name.");
+    }
   }
 
   if (Object.prototype.hasOwnProperty.call(updates, "phone")) {
     updates.phone = String(updates.phone || "").trim();
+    if (updates.phone && !isValidPhone(updates.phone)) {
+      throw new ApiError(400, "Enter a valid mobile number.");
+    }
   }
 
   if (Object.prototype.hasOwnProperty.call(updates, "location")) {

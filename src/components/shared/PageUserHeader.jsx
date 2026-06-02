@@ -1,5 +1,6 @@
 import { Bell } from "lucide-react";
 import { useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 
 const formatNotificationTime = (value) => {
@@ -14,6 +15,7 @@ const formatNotificationTime = (value) => {
 };
 
 export const PageUserHeader = ({ notifications = [], themeClasses = {} }) => {
+  const navigate = useNavigate();
   const { currentUser } = useAuth();
   const [isNotificationOpen, setNotificationOpen] = useState(false);
 
@@ -22,9 +24,21 @@ export const PageUserHeader = ({ notifications = [], themeClasses = {} }) => {
     [notifications],
   );
 
+  const handleProfileClick = () => {
+    if (currentUser?.role === "student") {
+      navigate("/student/profile");
+    } else if (currentUser?.role === "university") {
+      navigate("/university/profile");
+    } else if (currentUser?.role === "blogger") {
+      navigate("/blogger/profile");
+    } else if (currentUser?.role === "admin") {
+      navigate("/admin/profile");
+    }
+  };
+
   return (
     <div className="mb-6 flex items-center justify-between">
-      <div>
+      <div className="cursor-pointer hover:opacity-70 transition-opacity" onClick={handleProfileClick}>
         <h1 className="text-2xl font-bold text-slate-900">{currentUser?.name || "User"}</h1>
         <p className={`text-sm ${themeClasses.text || "text-slate-600"}`}>
           {currentUser?.role ? currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1) : "User"}

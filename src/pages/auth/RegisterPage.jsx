@@ -5,6 +5,8 @@ import { AuthSplitShell, authInputClass } from "../../components/shared/AuthSpli
 import { PasswordField } from "../../components/shared/PasswordField";
 import { useAuth } from "../../context/AuthContext";
 import {
+  alphabeticNameInputPattern,
+  emailPattern,
   getPasswordChecks,
   getPasswordStrength,
   isNumberInRange,
@@ -12,6 +14,7 @@ import {
   isValidEmail,
   isValidName,
   isValidPhone,
+  sanitizeAlphabeticNameInput,
 } from "../../lib/validation";
 import { roleLabelMap } from "../../utils/rolePaths";
 
@@ -72,7 +75,7 @@ export const RegisterPage = () => {
         nextErrors.name = "Enter a valid university name.";
       }
       if (!isValidName(formData.representativeName)) {
-        nextErrors.representativeName = "Use letters, spaces, apostrophes, periods, or hyphens.";
+        nextErrors.representativeName = "Use alphabetic letters and spaces only.";
       }
       if (!isValidPhone(formData.phone)) {
         nextErrors.phone = "Enter a valid Pakistani mobile number, for example +92-300-1234567.";
@@ -87,7 +90,7 @@ export const RegisterPage = () => {
         nextErrors.studentCount = "Enter a valid student count.";
       }
     } else if (!isValidName(formData.name)) {
-      nextErrors.name = "Use letters, spaces, apostrophes, periods, or hyphens.";
+      nextErrors.name = "Use alphabetic letters and spaces only.";
     }
 
     if (!isValidEmail(formData.email)) {
@@ -183,6 +186,7 @@ export const RegisterPage = () => {
                 onChange={(value) => updateField("name", value)}
                 placeholder={isUniversity ? "Enter university name" : "Enter your full name"}
                 error={fieldErrors.name}
+                alphaOnly={!isUniversity}
                 required
               />
 
@@ -209,6 +213,7 @@ export const RegisterPage = () => {
                     onChange={(value) => updateField("representativeName", value)}
                     placeholder="Enter representative's full name"
                     error={fieldErrors.representativeName}
+                    alphaOnly
                     required
                   />
                   <AuthField
@@ -291,9 +296,7 @@ export const RegisterPage = () => {
                   required
                   autoComplete="new-password"
                 />
-                {fieldErrors.password ? (
-                  <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>
-                ) : null}
+
               </div>
               <div>
                 <label className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase text-emerald-700">
@@ -352,6 +355,7 @@ function AuthField({
   placeholder,
   required = false,
   error = "",
+  alphaOnly = false,
 }) {
   return (
     <div className="min-w-0">
@@ -362,8 +366,18 @@ function AuthField({
       <input
         type={type}
         value={value}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) =>
+          onChange(alphaOnly ? sanitizeAlphabeticNameInput(event.target.value) : event.target.value)
+        }
         placeholder={placeholder}
+        pattern={type === "email" ? emailPattern.source : alphaOnly ? alphabeticNameInputPattern.source : undefined}
+        title={
+          type === "email"
+            ? "Enter a valid email address."
+            : alphaOnly
+              ? "Use alphabetic letters and spaces only."
+              : undefined
+        }
         className={authInputClass}
         required={required}
       />

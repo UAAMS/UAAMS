@@ -10,6 +10,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Avatar } from "../shared/Avatar";
+import { HighlightText } from "../shared/HighlightText";
 import { downloadPdfDocument } from "../../lib/pdfDownload";
 import { onDataUpdated } from "../../lib/socketClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
@@ -178,6 +179,7 @@ function MeritLists() {
               <MeritListCard
                 key={list.id}
                 meritList={list}
+                searchTerm={searchTerm}
                 onView={() => setSelectedList(list)}
                 onDownload={() => getMeritListPdf(list)}
               />
@@ -207,7 +209,7 @@ function StatCard({ icon, label, count, color }) {
   );
 }
 
-function MeritListCard({ meritList, onView, onDownload }) {
+function MeritListCard({ meritList, searchTerm, onView, onDownload }) {
   return (
     <article className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
       <div className="border-l-4 border-emerald-500 p-5">
@@ -227,9 +229,13 @@ function MeritListCard({ meritList, onView, onDownload }) {
           )}
           <div className="min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-emerald-600">{meritList.university}</span>
+              <span className="text-emerald-600">
+                <HighlightText text={meritList.university} query={searchTerm} />
+              </span>
             </div>
-            <h3 className="mb-1 break-words font-semibold text-slate-900">{meritList.program}</h3>
+            <h3 className="mb-1 wrap-break-word font-semibold text-slate-900">
+              <HighlightText text={meritList.program} query={searchTerm} />
+            </h3>
             <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
               <span>{meritList.session}</span>
               <span>|</span>

@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { AuthSplitShell, authInputClass } from "../../components/shared/AuthSplitShell";
 import { PasswordField } from "../../components/shared/PasswordField";
 import { useAuth } from "../../context/AuthContext";
+import { emailPattern, isValidEmail } from "../../lib/validation";
 import { resolveRolePath, roleLabelMap } from "../../utils/rolePaths";
 
 const roleOptions = ["student", "university", "blogger", "admin"];
@@ -42,6 +43,10 @@ export const LoginPage = () => {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (role !== "blogger" && !isValidEmail(identifier)) {
+      setMessage("Enter a valid email address.");
+      return;
+    }
     setIsSubmitting(true);
 
     const result = await login({ identifier, password, role, rememberMe });
@@ -87,10 +92,12 @@ export const LoginPage = () => {
             {role === "blogger" ? "Email or Username" : "Email"}
           </label>
           <input
-            type="text"
+            type={role === "blogger" ? "text" : "email"}
             value={identifier}
             onChange={(event) => setIdentifier(event.target.value)}
             placeholder={role === "blogger" ? "campus_writer" : "you@example.com"}
+            pattern={role === "blogger" ? undefined : emailPattern.source}
+            title={role === "blogger" ? undefined : "Enter a valid email address."}
             className={authInputClass}
             required
           />
