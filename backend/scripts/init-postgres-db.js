@@ -5,7 +5,7 @@ const dotenv = require("dotenv");
 
 // Load environment variables
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
-
+console.log(__dirname)
 const initializeDatabase = async () => {
   const pgUser = process.env.PG_USER || "postgres";
   const pgPassword = process.env.PG_PASSWORD || "";
@@ -14,6 +14,7 @@ const initializeDatabase = async () => {
   const pgDatabase = process.env.PG_DATABASE || "uaams";
 
   // Connect to default 'postgres' database to create the target database
+  console.log("pass:",pgPassword)
   const adminClient = new Client({
     user: pgUser,
     password: pgPassword,
