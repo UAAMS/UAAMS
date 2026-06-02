@@ -1,5 +1,7 @@
 const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
 const User = require("../models/User");
+const PendingRegistration = require("../models/PendingRegistration");
 const StudentProfile = require("../models/StudentProfile");
 const UniversityProfile = require("../models/UniversityProfile");
 const ApiError = require("../utils/ApiError");
@@ -75,6 +77,70 @@ const buildEmailVerificationUrl = (req, verificationToken, email = "") => {
   )}&email=${encodeURIComponent(String(email || "").trim().toLowerCase())}`;
 };
 
+const createVerifiedUserFromPendingRegistration = async (pendingRegistration) => {
+  const existingUser = await User.findOne({ email: pendingRegistration.email });
+  if (existingUser) {
+    await PendingRegistration.deleteOne({ _id: pendingRegistration._id });
+    throw new ApiError(409, "An account with this email already exists.");
+  }
+
+  const createdUser = new User({
+    role: pendingRegistration.role,
+    name: pendingRegistration.name,
+    email: pendingRegistration.email,
+    password: pendingRegistration.passwordHash,
+    username: pendingRegistration.username || undefined,
+    phone: pendingRegistration.phone || "",
+    location: pendingRegistration.location || "",
+    website: pendingRegistration.website || "",
+    establishedYear: pendingRegistration.establishedYear || "",
+    studentCount: pendingRegistration.studentCount || "",
+    programsOffered: pendingRegistration.programsOffered || "",
+    representativeName: pendingRegistration.representativeName || "",
+    emailVerified: true,
+    emailVerificationTokenHash: pendingRegistration.emailVerificationTokenHash,
+    emailVerificationExpiresAt: pendingRegistration.emailVerificationExpiresAt,
+    approvalStatus: pendingRegistration.approvalStatus,
+  });
+  createdUser.$locals.passwordAlreadyHashed = true;
+
+  let savedUser = null;
+  try {
+    savedUser = await createdUser.save();
+
+    if (savedUser.role === ROLES.STUDENT) {
+      await StudentProfile.create({
+        user: savedUser._id,
+        fullName: savedUser.name,
+        email: savedUser.email,
+      });
+    }
+
+    if (savedUser.role === ROLES.UNIVERSITY) {
+      await UniversityProfile.create({
+        university: savedUser._id,
+        universityName: savedUser.name,
+        representativeName: savedUser.representativeName || "",
+        email: savedUser.email,
+        phone: savedUser.phone || "",
+        city: savedUser.location || "",
+        website: savedUser.website || "",
+        established: savedUser.establishedYear || "",
+        totalStudents: savedUser.studentCount || "",
+        programs: [],
+      });
+    }
+
+    await PendingRegistration.deleteOne({ _id: pendingRegistration._id });
+    return savedUser;
+  } catch (error) {
+    if (savedUser?._id) {
+      await User.deleteOne({ _id: savedUser._id }).catch(() => {});
+    }
+    throw error;
+  }
+};
+
 const buildAuthUser = async (user) => {
   const safeUser = user.toSafeObject();
 
@@ -133,6 +199,10 @@ const register = asyncHandler(async (req, res) => {
     throw new ApiError(403, "Admin registration is restricted.");
   }
 
+  if (![ROLES.STUDENT, ROLES.UNIVERSITY].includes(role)) {
+    throw new ApiError(403, "This account type is created by an authorized user.");
+  }
+
   const normalizedEmail = String(email).trim().toLowerCase();
 
   if (!isValidEmail(normalizedEmail)) {
@@ -174,19 +244,23 @@ const register = asyncHandler(async (req, res) => {
   }
 
   if (username) {
-    const existingUsername = await User.findOne({ username: String(username).trim().toLowerCase() });
-    if (existingUsername) {
+    const normalizedUsername = String(username).trim().toLowerCase();
+    const existingUsername = await User.findOne({ username: normalizedUsername });
+    const pendingUsername = await PendingRegistration.findOne({
+      username: normalizedUsername,
+      email: { $ne: normalizedEmail },
+    });
+    if (existingUsername || pendingUsername) {
       throw new ApiError(409, "This username is already taken.");
     }
   }
 
   const verificationToken = generateVerificationToken();
-
-  const createdUser = await User.create({
+  const pendingRegistrationPayload = {
     role,
     name: String(name).trim(),
     email: normalizedEmail,
-    password: String(password),
+    passwordHash: await bcrypt.hash(String(password), 10),
     username: username ? String(username).trim().toLowerCase() : undefined,
     phone: phone ? String(phone).trim() : "",
     location: location ? String(location).trim() : "",
@@ -195,74 +269,52 @@ const register = asyncHandler(async (req, res) => {
     studentCount: studentCount ? String(studentCount).trim() : "",
     programsOffered: programsOffered ? String(programsOffered).trim() : "",
     representativeName: representativeName ? String(representativeName).trim() : "",
-    emailVerified: false,
     emailVerificationTokenHash: hashToken(verificationToken),
     emailVerificationExpiresAt: new Date(Date.now() + EMAIL_VERIFICATION_EXPIRY_MS),
     approvalStatus:
       role === ROLES.UNIVERSITY
         ? UNIVERSITY_APPROVAL.PENDING
         : UNIVERSITY_APPROVAL.APPROVED,
-  });
+  };
 
-  if (role === ROLES.STUDENT) {
-    await StudentProfile.create({
-      user: createdUser._id,
-      fullName: createdUser.name,
-      email: createdUser.email,
-    });
-  }
+  await PendingRegistration.findOneAndDelete({ email: normalizedEmail });
+  const pendingRegistration = await PendingRegistration.create(pendingRegistrationPayload);
+  const verificationUrl = buildEmailVerificationUrl(req, verificationToken, pendingRegistration.email);
 
-  if (role === ROLES.UNIVERSITY) {
-    await UniversityProfile.create({
-      university: createdUser._id,
-      universityName: createdUser.name,
-      representativeName: createdUser.representativeName || "",
-      email: createdUser.email,
-      phone: createdUser.phone || "",
-      city: createdUser.location || "",
-      website: createdUser.website || "",
-      established: createdUser.establishedYear || "",
-      totalStudents: createdUser.studentCount || "",
-      programs: [],
-    });
-  }
-
-  const verificationUrl = buildEmailVerificationUrl(req, verificationToken, createdUser.email);
-
+  let emailDelivery;
   try {
-    const emailDelivery = await sendEmailVerificationLinkEmail({
-      to: createdUser.email,
-      name: createdUser.name,
+    emailDelivery = await sendEmailVerificationLinkEmail({
+      to: pendingRegistration.email,
+      name: pendingRegistration.name,
       verificationUrl,
       validForHours: EMAIL_VERIFICATION_EXPIRY_HOURS,
     });
-
-    if (!emailDelivery.sent) {
-      console.error(
-        "Email verification delivery failed for user",
-        createdUser._id?.toString(),
-        emailDelivery.reason,
-      );
-    }
   } catch (error) {
-    console.error(
-      "Error sending verification email for user",
-      createdUser._id?.toString(),
-      error?.message || error,
+    await PendingRegistration.deleteOne({ _id: pendingRegistration._id });
+    throw new ApiError(
+      500,
+      error?.message || "Unable to send verification email. Please try again."
     );
   }
 
-  return res.status(201).json({
+  if (!emailDelivery.sent) {
+    await PendingRegistration.deleteOne({ _id: pendingRegistration._id });
+    throw new ApiError(
+      500,
+      emailDelivery.reason || "Unable to send verification email. Please try again."
+    );
+  }
+
+  return res.status(202).json({
     success: true,
     message:
       role === ROLES.UNIVERSITY
-        ? "Registration submitted. Verify your email first, then wait for admin approval."
-        : "Account created. Verification email is being sent.",
+        ? "Verification link sent. Verify your email to submit registration for admin approval."
+        : "Verification link sent. Verify your email to complete registration.",
     data: {
-      user: createdUser.toSafeObject(),
       verificationRequired: true,
-      email: createdUser.email,
-      role: createdUser.role,
+      email: pendingRegistration.email,
+      role: pendingRegistration.role,
     },
   });
 });
@@ -279,6 +331,9 @@ const login = asyncHandler(async (req, res) => {
   }
 
   const normalizedIdentifier = String(identifier).trim().toLowerCase();
+  if (role !== ROLES.BLOGGER && !isValidEmail(normalizedIdentifier)) {
+    throw new ApiError(400, "Enter a valid email address.");
+  }
 
   const query = { role };
   if (role === ROLES.BLOGGER) {
@@ -358,8 +413,34 @@ const verifyEmail = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Verification token is required.");
   }
 
+  const tokenHash = hashToken(token);
+  const pendingRegistration = await PendingRegistration.findOne({
+    emailVerificationTokenHash: tokenHash,
+  }).select("+passwordHash +emailVerificationTokenHash");
+
+  if (pendingRegistration) {
+    if (new Date(pendingRegistration.emailVerificationExpiresAt).getTime() < Date.now()) {
+      await PendingRegistration.deleteOne({ _id: pendingRegistration._id });
+      throw new ApiError(400, "Verification link has expired. Please register again.");
+    }
+
+    const createdUser = await createVerifiedUserFromPendingRegistration(pendingRegistration);
+
+    return res.status(200).json({
+      success: true,
+      message:
+        createdUser.role === ROLES.UNIVERSITY
+          ? "Email verified successfully. Your registration is waiting for admin approval."
+          : "Email verified successfully. You can now login.",
+      data: {
+        role: createdUser.role,
+        email: createdUser.email,
+      },
+    });
+  }
+
   const user = await User.findOne({
-    emailVerificationTokenHash: hashToken(token),
+    emailVerificationTokenHash: tokenHash,
   }).select("+emailVerificationTokenHash +emailVerificationExpiresAt +emailVerified");
 
   if (!user || !user.emailVerificationTokenHash || !user.emailVerificationExpiresAt) {
@@ -399,8 +480,54 @@ const verifyEmail = asyncHandler(async (req, res) => {
 
 const resendEmailVerification = asyncHandler(async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
-  if (!email) {
-    throw new ApiError(400, "Email is required.");
+  if (!isValidEmail(email)) {
+    throw new ApiError(400, "Enter a valid email address.");
+  }
+
+  const pendingRegistration = await PendingRegistration.findOne({ email }).select(
+    "+emailVerificationTokenHash"
+  );
+
+  if (pendingRegistration) {
+    if (new Date(pendingRegistration.emailVerificationExpiresAt).getTime() < Date.now()) {
+      await PendingRegistration.deleteOne({ _id: pendingRegistration._id });
+      throw new ApiError(400, "Verification link has expired. Please register again.");
+    }
+
+    const verificationToken = generateVerificationToken();
+    pendingRegistration.emailVerificationTokenHash = hashToken(verificationToken);
+    pendingRegistration.emailVerificationExpiresAt = new Date(
+      Date.now() + EMAIL_VERIFICATION_EXPIRY_MS
+    );
+    await pendingRegistration.save({ validateBeforeSave: false });
+
+    const verificationUrl = buildEmailVerificationUrl(
+      req,
+      verificationToken,
+      pendingRegistration.email
+    );
+    const emailDelivery = await sendEmailVerificationLinkEmail({
+      to: pendingRegistration.email,
+      name: pendingRegistration.name,
+      verificationUrl,
+      validForHours: EMAIL_VERIFICATION_EXPIRY_HOURS,
+    });
+
+    if (!emailDelivery.sent) {
+      throw new ApiError(
+        500,
+        emailDelivery.reason || "Unable to send verification email. Please try again."
+      );
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Verification link sent to your email.",
+      data: {
+        role: pendingRegistration.role,
+        email: pendingRegistration.email,
+      },
+    });
   }
 
   const user = await User.findOne({ email }).select(
@@ -463,10 +590,7 @@ const requestPasswordResetOtp = asyncHandler(async (req, res) => {
   );
 
   if (!user) {
-    return res.status(200).json({
-      success: true,
-      message: "If an account exists, an OTP has been sent.",
-    });
+    throw new ApiError(404, "Email is not registered.");
   }
 
   const otp = generateOtp();

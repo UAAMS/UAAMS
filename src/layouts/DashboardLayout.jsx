@@ -1,6 +1,6 @@
 import { Bell, LogOut, Menu, X, GraduationCap } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Avatar } from "../components/shared/Avatar";
 import { ConfirmDialog } from "../components/shared/ConfirmDialog";
 import { useAuth } from "../context/AuthContext";
@@ -53,6 +53,7 @@ const mapStudentNotificationFromEvent = (event) => {
       description: "A university blog post was added or updated.",
       at,
       read: false,
+      route: "/student/blog",
     };
   }
 
@@ -63,6 +64,7 @@ const mapStudentNotificationFromEvent = (event) => {
       description: "University announcements were updated.",
       at,
       read: false,
+      route: "/student/announcements",
     };
   }
 
@@ -73,6 +75,7 @@ const mapStudentNotificationFromEvent = (event) => {
       description: "Program admission status, fee, or deadline details changed.",
       at,
       read: false,
+      route: "/student/recommendations",
     };
   }
 
@@ -83,6 +86,7 @@ const mapStudentNotificationFromEvent = (event) => {
       description: "A merit list or roll number update is available.",
       at,
       read: false,
+      route: "/student/merit-lists",
     };
   }
 
@@ -94,6 +98,7 @@ const mapStudentNotificationFromEvent = (event) => {
         description: "Your university uploaded an admission letter.",
         at,
         read: false,
+        route: "/student/applications",
       };
     }
 
@@ -104,6 +109,7 @@ const mapStudentNotificationFromEvent = (event) => {
         description: `Current status: ${formatStatus(event.status)}.`,
         at,
         read: false,
+        route: "/student/applications",
       };
     }
 
@@ -113,6 +119,7 @@ const mapStudentNotificationFromEvent = (event) => {
       description: "Your application record has changed.",
       at,
       read: false,
+      route: "/student/applications",
     };
   }
 
@@ -135,6 +142,7 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
   const [isNotificationOpen, setNotificationOpen] = useState(false);
   const [studentNotifications, setStudentNotifications] = useState([]);
   const location = useLocation();
+  const navigate = useNavigate();
   const { currentUser, logout } = useAuth();
   const adminProfileState = useAppSelector((state) => state.adminAccount);
   const studentProfileState = useAppSelector((state) => state.studentProfile);
@@ -280,6 +288,14 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
       saveStudentNotifications(next);
       return next;
     });
+  };
+
+  const handleNotificationClick = (notification) => {
+    clearNotification(notification.id);
+    setNotificationOpen(false);
+    if (notification.route) {
+      navigate(notification.route);
+    }
   };
 
   const clearNotification = (notificationId) => {
@@ -456,7 +472,7 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
                             {studentNotifications.map((notification) => (
                               <article
                                 key={notification.id}
-                                onClick={() => markNotificationRead(notification.id)}
+                                onClick={() => handleNotificationClick(notification)}
                                 className={`rounded-lg border px-3 py-2 ${
                                   notification.read
                                     ? "border-slate-200 bg-slate-50"
@@ -468,7 +484,7 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
                                     type="button"
                                     onClick={(event) => {
                                       event.stopPropagation();
-                                      markNotificationRead(notification.id);
+                                      handleNotificationClick(notification);
                                     }}
                                     className="flex-1 text-left"
                                   >
@@ -504,8 +520,20 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
                   </div>
                 ) : null}
                 <div
-                  className={`flex items-center gap-2 rounded-full py-1 pl-1 pr-3 text-xs ring-1 ${themeClasses.badge} ${themeClasses.ring}`}
+                  onClick={() => {
+                    if (currentUser?.role === "student") {
+                      navigate("/student/profile");
+                    } else if (currentUser?.role === "university") {
+                      navigate("/university/profile");
+                    } else if (currentUser?.role === "blogger") {
+                      navigate("/blogger/profile");
+                    } else if (currentUser?.role === "admin") {
+                      navigate("/admin/profile");
+                    }
+                  }}
+                  className={`flex items-center gap-2 rounded-full py-1 pl-1 pr-3 text-xs ring-1 cursor-pointer hover:opacity-80 transition-opacity ${themeClasses.badge} ${themeClasses.ring}`}
                 >
+
                   <Avatar
                     src={headerProfileImage}
                     name={currentUser?.name || "User"}

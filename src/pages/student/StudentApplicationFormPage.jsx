@@ -5,6 +5,8 @@ import { useAuth } from "../../context/AuthContext";
 import { DashboardPageShell } from "../shared/DashboardPageShell";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
 import {
+  alphabeticNameInputPattern,
+  emailPattern,
   isNumberInRange,
   isSupportedDocumentFile,
   isSupportedProfileImage,
@@ -12,6 +14,7 @@ import {
   isValidEmail,
   isValidName,
   isValidPhone,
+  sanitizeAlphabeticNameInput,
 } from "../../lib/validation";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
@@ -34,6 +37,7 @@ const getFieldValue = ({
   const commonClass = `w-full px-3 py-2 border rounded-lg text-sm ${
     error ? "border-red-500" : "border-slate-300"
   }`;
+  const validationProps = getInputValidationProps(field);
 
   if (field.type === "textarea") {
     return (
@@ -94,9 +98,17 @@ const getFieldValue = ({
     <input
       type={field.type}
       value={value || ""}
-      onChange={(event) => onChange(field.id, event.target.value)}
+      onChange={(event) =>
+        onChange(
+          field.id,
+          isAlphabeticNameField(field)
+            ? sanitizeAlphabeticNameInput(event.target.value)
+            : event.target.value,
+        )
+      }
       placeholder={field.placeholder}
       className={commonClass}
+      {...validationProps}
     />
   );
 };
@@ -118,6 +130,37 @@ const getFileRulesForField = (field) => {
     helperText: "PDF, JPG, or PNG only.",
     isValid: isSupportedDocumentFile,
   };
+};
+
+const isEmailField = (field) => {
+  const lowerLabel = String(field?.label || "").toLowerCase();
+  return field?.type === "email" || lowerLabel.includes("email");
+};
+
+const isAlphabeticNameField = (field) => {
+  const lowerLabel = String(field?.label || "").toLowerCase();
+  return (
+    (lowerLabel.includes("name") || lowerLabel.includes("father")) &&
+    !lowerLabel.includes("university")
+  );
+};
+
+const getInputValidationProps = (field) => {
+  if (isEmailField(field)) {
+    return {
+      pattern: emailPattern.source,
+      title: "Enter a valid email address.",
+    };
+  }
+
+  if (isAlphabeticNameField(field)) {
+    return {
+      pattern: alphabeticNameInputPattern.source,
+      title: "Use alphabetic letters and spaces only.",
+    };
+  }
+
+  return {};
 };
 
 const validateFieldValue = (field, value) => {
@@ -146,11 +189,10 @@ const validateFieldValue = (field, value) => {
   }
 
   if (
-    (lowerLabel.includes("name") || lowerLabel.includes("father")) &&
-    !lowerLabel.includes("university") &&
+    isAlphabeticNameField(field) &&
     !isValidName(textValue)
   ) {
-    return "Use letters, spaces, apostrophes, periods, or hyphens.";
+    return "Use alphabetic letters and spaces only.";
   }
 
   if (field.type === "number" || lowerLabel.includes("marks") || lowerLabel.includes("aggregate")) {
@@ -635,24 +677,23 @@ export const StudentApplicationFormPage = () => {
     }
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  const saveDraft = async () => {
     setLocalSubmitError("");
     dispatch(clearStudentApplicationFormErrors());
 
     if (programMissingFromUniversity) {
       setLocalSubmitError("Selected program is no longer available. Please choose another program.");
-      return;
+      return null;
     }
 
     if (isProgramAdmissionClosed) {
       setLocalSubmitError("Admission is currently closed for this program.");
-      return;
+      return null;
     }
 
     if (isProgramDeadlinePassed) {
       setLocalSubmitError("Application deadline has passed for this program.");
-      return;
+      return null;
     }
 
     const nextErrors = {};
@@ -666,7 +707,7 @@ export const StudentApplicationFormPage = () => {
 
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
-      return;
+      return null;
     }
 
     try {
@@ -682,16 +723,33 @@ export const StudentApplicationFormPage = () => {
 
       if (!applicationId) {
         setLocalSubmitError("Application draft could not be prepared for payment.");
-        return;
+        return null;
       }
 
-      navigate(`/student/apply/${universityId}/payment/${applicationId}`);
+      return applicationId;
     } catch (submissionFailure) {
       setLocalSubmitError(
         typeof submissionFailure === "string"
           ? submissionFailure
           : submissionFailure?.message || "Unable to save application draft.",
       );
+      return null;
+    }
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    const applicationId = await saveDraft();
+    if (applicationId) {
+      navigate(`/student/apply/${universityId}/payment/${applicationId}`);
+    }
+  };
+
+  const handleSaveDraftOnly = async (event) => {
+    event.preventDefault();
+    const applicationId = await saveDraft();
+    if (applicationId) {
+      navigate("/student/applications");
     }
   };
 
@@ -807,14 +865,21 @@ export const StudentApplicationFormPage = () => {
             Cancel
           </button>
           <button
+            onClick={handleSaveDraftOnly}
+            disabled={isSubmitting || isSubmissionBlocked}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+          >
+            {isSubmitting ? "Saving Draft..." : "Save as Draft"}
+          </button>
+          <button
             type="submit"
             disabled={isSubmitting || isSubmissionBlocked}
             className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white hover:bg-emerald-700"
           >
             {isSubmitting
               ? draftId
-                ? "Updating Draft..."
-                : "Creating Draft..."
+                ? "Updating..."
+                : "Creating..."
               : "Continue to Payment"}
             <ArrowRight className="h-4 w-4" />
           </button>

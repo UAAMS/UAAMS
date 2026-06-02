@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Bell, Calendar, ChevronRight, Download, Paperclip, School, TrendingUp } from "lucide-react";
 import { Avatar } from "../shared/Avatar";
+import { HighlightText } from "../shared/HighlightText";
 import { onDataUpdated } from "../../lib/socketClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { fetchStudentAnnouncements } from "../../store/slices/announcementsSlice";
@@ -152,7 +153,7 @@ function Announcements() {
             </div>
           ) : (
             filteredAnnouncements.map((announcement) => (
-              <AnnouncementCard key={announcement.id} announcement={announcement} />
+              <AnnouncementCard key={announcement.id} announcement={announcement} searchTerm={searchTerm} />
             ))
           )}
         </div>
@@ -171,7 +172,7 @@ function StatCard({ icon, label, count, color }) {
   );
 }
 
-function AnnouncementCard({ announcement }) {
+function AnnouncementCard({ announcement, searchTerm }) {
   const [expanded, setExpanded] = useState(false);
 
   const styles = useMemo(() => {
@@ -222,14 +223,18 @@ function AnnouncementCard({ announcement }) {
             )}
             <div className="flex-1">
               <div className="mb-1 flex flex-wrap items-center gap-2">
-                <span className="text-emerald-600">{announcement.university}</span>
+                <span className="text-emerald-600">
+                  <HighlightText text={announcement.university} query={searchTerm} />
+                </span>
                 <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs">
                   {announcement.category}
                 </span>
               </div>
-              <h3 className="text-slate-900 mb-2">{announcement.title}</h3>
+              <h3 className="text-slate-900 mb-2">
+                <HighlightText text={announcement.title} query={searchTerm} />
+              </h3>
               <p className={`text-slate-600 text-sm ${expanded ? "" : "line-clamp-2"}`}>
-                {announcement.content}
+                <HighlightText text={announcement.content} query={searchTerm} />
               </p>
               {announcement.attachmentUrl ? (
                 <a

@@ -17,7 +17,7 @@ export const VerifyEmailPendingPage = () => {
       title="Verify Your Email"
       subtitle="Complete registration from the verification link sent to your email."
       footer={
-        <Link to={`/register/${role}`} className="font-semibold text-emerald-700 hover:text-emerald-800">
+        <Link to={`/register/${role}`} className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-70">
           Back to Registration
         </Link>
       }
@@ -33,9 +33,6 @@ export const VerifyEmailPendingPage = () => {
           Click the verification link in your email to complete registration.
         </div>
 
-        <p className="mt-4 text-sm text-slate-600">
-          After verification, you can login to your {roleLabelMap[role].toLowerCase()} portal.
-        </p>
     </AuthSplitShell>
   );
 };

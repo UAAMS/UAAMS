@@ -83,6 +83,18 @@ export const deleteDraftApplication = createAsyncThunk(
   },
 );
 
+export const deleteUniversityApplication = createAsyncThunk(
+  "applications/deleteUniversityApplication",
+  async (applicationId, { rejectWithValue }) => {
+    try {
+      await api.del(`/applications/university/me/${applicationId}`);
+      return String(applicationId);
+    } catch (error) {
+      return rejectWithValue(error?.message || "Unable to delete application record.");
+    }
+  },
+);
+
 export const updateDraftApplication = createAsyncThunk(
   "applications/updateDraftApplication",
   async ({ applicationId, payload }, { rejectWithValue }) => {
@@ -134,6 +146,7 @@ const applicationsSlice = createSlice({
       loading: false,
       error: "",
       statusMutatingIds: [],
+      deletingIds: [],
     },
     current: {
       item: null,
@@ -211,6 +224,26 @@ const applicationsSlice = createSlice({
           (item) => item !== id,
         );
         state.university.error = action.payload || "Unable to update application status.";
+      })
+      .addCase(deleteUniversityApplication.pending, (state, action) => {
+        const id = String(action.meta.arg || "");
+        state.university.deletingIds.push(id);
+        state.university.error = "";
+      })
+      .addCase(deleteUniversityApplication.fulfilled, (state, action) => {
+        const id = String(action.payload || "");
+        state.university.deletingIds = state.university.deletingIds.filter((item) => item !== id);
+        state.university.items = state.university.items.filter(
+          (item) => String(item?.id || item?._id || "") !== id,
+        );
+        if (String(state.current.item?._id || state.current.item?.id || "") === id) {
+          state.current.item = null;
+        }
+      })
+      .addCase(deleteUniversityApplication.rejected, (state, action) => {
+        const id = String(action.meta.arg || "");
+        state.university.deletingIds = state.university.deletingIds.filter((item) => item !== id);
+        state.university.error = action.payload || "Unable to delete application record.";
       })
       .addCase(fetchApplicationById.pending, (state) => {
         state.current.loading = true;

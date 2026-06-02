@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { HighlightText } from "../shared/HighlightText";
 import { PasswordField } from "../shared/PasswordField";
-import { isStrongPassword, isValidEmail, isValidName, isValidPhone } from "../../lib/validation";
+import {
+  alphabeticNameInputPattern,
+  emailPattern,
+  isStrongPassword,
+  isValidEmail,
+  isValidName,
+  isValidPhone,
+  sanitizeAlphabeticNameInput,
+} from "../../lib/validation";
 import { onDataUpdated } from "../../lib/socketClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
@@ -115,7 +124,7 @@ function BloggerManagement() {
     setFormError("");
 
     if (!isValidName(formData.name)) {
-      setFormError("Enter a valid blogger name.");
+      setFormError("Blogger name can contain alphabetic letters and spaces only.");
       return;
     }
 
@@ -261,10 +270,10 @@ function BloggerManagement() {
             <article key={blogger.id} className="rounded-lg border border-slate-200 bg-white p-5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
-                  <h3 className="text-slate-900">{blogger.name}</h3>
-                  <p className="text-sm text-slate-600">{blogger.email}</p>
+                  <h3 className="text-slate-900"><HighlightText text={blogger.name} query={searchTerm} /></h3>
+                  <p className="text-sm text-slate-600"><HighlightText text={blogger.email} query={searchTerm} /></p>
                   <p className="text-xs text-slate-500 mt-1">
-                    Username: {blogger.username || "N/A"} | Phone: {blogger.phone || "N/A"}
+                    Username: <HighlightText text={blogger.username || "N/A"} query={searchTerm} /> | Phone: <HighlightText text={blogger.phone || "N/A"} query={searchTerm} />
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
                     Added: {formatDate(blogger.createdAt)}
@@ -323,8 +332,13 @@ function BloggerManagement() {
                     onChange={(event) => {
                       dispatch(clearUniversityBloggersMessages());
                       setFormError("");
-                      setFormData((previous) => ({ ...previous, name: event.target.value }));
+                      setFormData((previous) => ({
+                        ...previous,
+                        name: sanitizeAlphabeticNameInput(event.target.value),
+                      }));
                     }}
+                    pattern={alphabeticNameInputPattern.source}
+                    title="Use alphabetic letters and spaces only."
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
@@ -339,6 +353,8 @@ function BloggerManagement() {
                       setFormError("");
                       setFormData((previous) => ({ ...previous, email: event.target.value }));
                     }}
+                    pattern={emailPattern.source}
+                    title="Enter a valid email address."
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />

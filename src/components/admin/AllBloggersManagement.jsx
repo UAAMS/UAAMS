@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { HighlightText } from "../shared/HighlightText";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
   deleteAdminBlogger,
@@ -136,11 +137,10 @@ function AllBloggersManagement() {
             <article key={blogger.id} className="rounded-lg border border-slate-200 bg-white p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h3 className="text-slate-900">{blogger.name}</h3>
-                  <p className="text-sm text-slate-600">{blogger.email}</p>
+                  <h3 className="text-slate-900"><HighlightText text={blogger.name} query={searchTerm} /></h3>
+                  <p className="text-sm text-slate-600"><HighlightText text={blogger.email} query={searchTerm} /></p>
                   <p className="text-xs text-slate-500 mt-1">
-                    Username: {blogger.username || "N/A"} | University:{" "}
-                    {blogger.managedUniversity || "N/A"}
+                    Username: <HighlightText text={blogger.username || "N/A"} query={searchTerm} /> | University: <HighlightText text={blogger.managedUniversity || "N/A"} query={searchTerm} />
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
                     Added: {formatDate(blogger.createdAt)}

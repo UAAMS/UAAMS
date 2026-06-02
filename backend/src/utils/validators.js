@@ -1,5 +1,5 @@
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
-const namePattern = /^[A-Za-z][A-Za-z .'-]{1,119}$/;
+const namePattern = /^(?=.{2,120}$)[A-Za-z]+(?: [A-Za-z]+)*$/;
 const phonePattern = /^(\+92|0)?[ -]?3\d{2}[ -]?\d{7}$/;
 const cnicPattern = /^\d{5}-?\d{7}-?\d$/;
 const transactionReferencePattern = /^[A-Za-z0-9][A-Za-z0-9._/-]{5,63}$/;

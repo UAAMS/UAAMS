@@ -3,7 +3,7 @@ import { Mail } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { AuthSplitShell, authInputClass } from "../../components/shared/AuthSplitShell";
 import { useAuth } from "../../context/AuthContext";
-import { isValidEmail } from "../../lib/validation";
+import { emailPattern, isValidEmail } from "../../lib/validation";
 
 export const ForgotPasswordPage = () => {
   const navigate = useNavigate();
@@ -28,7 +28,7 @@ export const ForgotPasswordPage = () => {
 
     const result = await requestPasswordResetOtp(email);
     if (!result.ok) {
-      setError("We could not send the reset code right now. Please try again.");
+      setError(result.message || "We could not send the reset code right now. Please try again.");
       setIsSubmitting(false);
       return;
     }
@@ -47,13 +47,8 @@ export const ForgotPasswordPage = () => {
       eyebrow="Account recovery"
       title="Forgot Password"
       subtitle="Enter your registered email and we will send a reset code if the account exists."
-      footer={
-        <Link to={`/login/${role}`} className="font-semibold text-emerald-700 hover:text-emerald-800">
-          Back to login
-        </Link>
-      }
     >
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
             <label className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase text-emerald-700">
               <Mail className="h-4 w-4" />
@@ -64,6 +59,8 @@ export const ForgotPasswordPage = () => {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               placeholder="you@example.com"
+              pattern={emailPattern.source}
+              title="Enter a valid registered email address."
               className={authInputClass}
               required
             />
@@ -80,6 +77,9 @@ export const ForgotPasswordPage = () => {
           >
             {isSubmitting ? "Sending OTP..." : "Send OTP"}
           </button>
+          <Link to={`/login/${role}`} className="w-full rounded-lg text-emerald-600 px-4 py-3 text-sm font-semibold  transition-colors hover:underline hover:underline-offset-6 disabled:opacity-70 text-center border border-emerald-600">
+            Back to login
+          </Link>
         </form>
     </AuthSplitShell>
   );

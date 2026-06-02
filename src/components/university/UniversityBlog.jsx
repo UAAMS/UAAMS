@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Edit, Eye, Heart, Plus, Trash2 } from "lucide-react";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { HighlightText } from "../shared/HighlightText";
 import { ImagePreviewModal } from "../shared/ImagePreviewModal";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
 import { isSupportedProfileImage } from "../../lib/validation";
@@ -344,15 +345,19 @@ function UniversityBlog() {
                       {post.views} views
                     </span>
                   </div>
-                  <h3 className="text-slate-900 mb-2">{post.title}</h3>
-                  <p className="text-sm text-slate-600 mb-2">{post.excerpt}</p>
+                  <h3 className="text-slate-900 mb-2">
+                    <HighlightText text={post.title} query={searchTerm} />
+                  </h3>
+                  <p className="text-sm text-slate-600 mb-2">
+                    <HighlightText text={post.excerpt} query={searchTerm} />
+                  </p>
                   <p className="text-xs text-slate-500 mb-2">
                     {formatDate(post.publishedAt || post.createdAt)}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {post.tags.map((tag) => (
                       <span key={`${post.id}-${tag}`} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700">
-                        {tag}
+                        <HighlightText text={tag} query={searchTerm} />
                       </span>
                     ))}
                   </div>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, MessageCircle, Heart, Eye } from "lucide-react";
 import { DashboardPageShell } from "../../pages/shared/DashboardPageShell";
 import { BlogCommentManager } from "../shared/BlogCommentManager";
+import { HighlightText } from "../shared/HighlightText";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { ImagePreviewModal } from "../shared/ImagePreviewModal";
 import { onDataUpdated } from "../../lib/socketClient";
@@ -263,8 +264,12 @@ export function UniversityBlogView() {
                 {blog.status}
               </span>
             </div>
-            <h3 className="mb-2 line-clamp-2 font-semibold text-slate-900">{blog.title}</h3>
-            <p className="mb-3 line-clamp-3 text-sm text-slate-600">{blog.excerpt}</p>
+            <h3 className="mb-2 line-clamp-2 font-semibold text-slate-900">
+              <HighlightText text={blog.title} query={searchTerm} />
+            </h3>
+            <p className="mb-3 line-clamp-3 text-sm text-slate-600">
+              <HighlightText text={blog.excerpt} query={searchTerm} />
+            </p>
             <div className="flex items-center gap-3 text-xs text-slate-500">
               <span className="inline-flex items-center gap-1">
                 <Eye className="h-3 w-3" />

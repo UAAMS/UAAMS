@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AuthSplitShell, authInputClass } from "../../components/shared/AuthSplitShell";
 import { useAuth } from "../../context/AuthContext";
+import { emailPattern, isValidEmail } from "../../lib/validation";
 
 const validRoles = new Set(["student", "university", "blogger", "admin"]);
 
@@ -65,8 +66,8 @@ export const VerifyEmailPage = () => {
 
   const handleResend = async () => {
     const resendEmail = String(resendEmailInput || "").trim();
-    if (!resendEmail) {
-      setResendError("Please enter your registered email.");
+    if (!isValidEmail(resendEmail)) {
+      setResendError("Please enter a valid registered email.");
       return;
     }
     setResendMessage("");
@@ -116,6 +117,8 @@ export const VerifyEmailPage = () => {
                 value={resendEmailInput}
                 onChange={(event) => setResendEmailInput(event.target.value)}
                 placeholder="Enter registered email"
+                pattern={emailPattern.source}
+                title="Enter a valid registered email address."
                 className={authInputClass}
               />
               <button

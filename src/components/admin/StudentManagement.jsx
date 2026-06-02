@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { HighlightText } from "../shared/HighlightText";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
   deleteAdminStudent,
@@ -142,10 +143,10 @@ function StudentManagement() {
             <article key={student.id} className="rounded-lg border border-slate-200 bg-white p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h3 className="text-slate-900">{student.name}</h3>
-                  <p className="text-sm text-slate-600">{student.email}</p>
+                  <h3 className="text-slate-900"><HighlightText text={student.name} query={searchTerm} /></h3>
+                  <p className="text-sm text-slate-600"><HighlightText text={student.email} query={searchTerm} /></p>
                   <p className="text-xs text-slate-500 mt-1">
-                    Phone: {student.phone || "N/A"} | City: {student.city || "N/A"}
+                    Phone: <HighlightText text={student.phone || "N/A"} query={searchTerm} /> | City: <HighlightText text={student.city || "N/A"} query={searchTerm} />
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
                     Registered: {formatDate(student.createdAt)} | Applications:{" "}

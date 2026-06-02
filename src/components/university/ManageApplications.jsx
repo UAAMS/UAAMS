@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search, Download, Eye, CheckCircle, XCircle, Clock } from "lucide-react";
+import { Search, Download, Eye, CheckCircle, XCircle, Clock, Trash2 } from "lucide-react";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { HighlightText } from "../shared/HighlightText";
 import { onDataUpdated } from "../../lib/socketClient";
 import { api } from "../../lib/apiClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
   clearApplicationsErrors,
+  deleteUniversityApplication,
   fetchUniversityApplications,
   updateUniversityApplicationStatus,
 } from "../../store/slices/applicationsSlice";
@@ -49,6 +51,7 @@ function ManageApplications() {
     items: universityApplications,
     loading: isLoading,
     error,
+    deletingIds,
   } = useAppSelector((state) => state.applications.university);
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -59,6 +62,8 @@ function ManageApplications() {
   const [selectedApplication, setSelectedApplication] = useState(null);
   const [downloadError, setDownloadError] = useState("");
   const [downloadingId, setDownloadingId] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const isDeletingTarget = Boolean(deleteTarget?.id) && deletingIds.includes(deleteTarget.id);
 
   const applications = useMemo(
     () => (universityApplications || []).map(normalizeApplication),
@@ -144,6 +149,19 @@ function ManageApplications() {
     setSelectedApplication((previous) =>
       previous && previous.id === applicationId ? { ...previous, ...updated } : previous,
     );
+  };
+
+  const handleDeleteApplication = async () => {
+    if (!deleteTarget?.id) return;
+    try {
+      await dispatch(deleteUniversityApplication(deleteTarget.id)).unwrap();
+      if (selectedApplication?.id === deleteTarget.id) {
+        setSelectedApplication(null);
+      }
+      setDeleteTarget(null);
+    } catch {
+      // Error is surfaced from Redux state.
+    }
   };
 
   return (
@@ -278,10 +296,16 @@ function ManageApplications() {
                 <tbody className="divide-y divide-slate-200">
                   {filteredApplications.map((application) => (
                     <tr key={application.id} className="hover:bg-slate-50">
-                      <td className="px-6 py-4 text-sm text-slate-900">{application.code}</td>
+                      <td className="px-6 py-4 text-sm text-slate-900">
+                        <HighlightText text={application.code} query={searchTerm} />
+                      </td>
                       <td className="px-6 py-4">
-                        <div className="text-sm text-slate-900">{application.studentName}</div>
-                        <div className="text-xs text-slate-500">{application.email}</div>
+                        <div className="text-sm text-slate-900">
+                          <HighlightText text={application.studentName} query={searchTerm} />
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          <HighlightText text={application.email} query={searchTerm} />
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-900">{application.program}</td>
                       <td className="px-6 py-4">
@@ -307,6 +331,15 @@ function ManageApplications() {
                             title="Download application package"
                           >
                             <Download className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(application)}
+                            disabled={deletingIds.includes(application.id)}
+                            className="rounded-lg p-2 text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60"
+                            title="Delete application record"
+                          >
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
                       </td>
@@ -334,6 +367,18 @@ function ManageApplications() {
           }}
         />
       ) : null}
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="Delete application record?"
+        description={`This will permanently delete ${
+          deleteTarget?.code || "this application"
+        } from applications, roll numbers, and admission letters.`}
+        confirmLabel="Delete Record"
+        tone="danger"
+        isLoading={isDeletingTarget}
+        onConfirm={handleDeleteApplication}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

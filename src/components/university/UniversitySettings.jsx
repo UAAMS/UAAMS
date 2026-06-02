@@ -3,11 +3,14 @@ import { Pencil, Save, Upload, X } from "lucide-react";
 import { Avatar } from "../shared/Avatar";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
 import {
+  alphabeticNameInputPattern,
+  emailPattern,
   isNumberInRange,
   isSupportedProfileImage,
   isValidEmail,
   isValidName,
   isValidPhone,
+  sanitizeAlphabeticNameInput,
 } from "../../lib/validation";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
@@ -98,7 +101,7 @@ const validateSettings = (settings) => {
   }
 
   if (settings.representativeName && !isValidName(settings.representativeName)) {
-    return "Enter a valid representative name.";
+    return "Representative name can contain alphabetic letters and spaces only.";
   }
 
   if (settings.representativeEmail && !isValidEmail(settings.representativeEmail)) {
@@ -501,6 +504,7 @@ function UniversitySettings() {
               value={formData.representativeName}
               onChange={(value) => updateField("representativeName", value)}
               disabled={isFormDisabled}
+              alphaOnly
             />
             <Field
               label="Representative Position"
@@ -536,6 +540,7 @@ function Field({
   placeholder = "",
   required = false,
   disabled = false,
+  alphaOnly = false,
 }) {
   return (
     <div>
@@ -543,10 +548,20 @@ function Field({
       <input
         type={type}
         value={value}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) =>
+          onChange(alphaOnly ? sanitizeAlphabeticNameInput(event.target.value) : event.target.value)
+        }
         placeholder={placeholder}
         required={required}
         disabled={disabled}
+        pattern={type === "email" ? emailPattern.source : alphaOnly ? alphabeticNameInputPattern.source : undefined}
+        title={
+          type === "email"
+            ? "Enter a valid email address."
+            : alphaOnly
+              ? "Use alphabetic letters and spaces only."
+              : undefined
+        }
         className="uaams-disabled-control w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
     </div>

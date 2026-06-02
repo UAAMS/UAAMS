@@ -5,6 +5,7 @@ import {
   Calendar,
   ChevronRight,
   Clock,
+  Eye,
   Heart,
   MessageCircle,
   Reply,
@@ -12,11 +13,13 @@ import {
   Send,
   School,
   Tag,
+  ArrowLeft,
 } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
 import { Avatar } from "../shared/Avatar";
+import { HighlightText } from "../shared/HighlightText";
 import { ImagePreviewModal } from "../shared/ImagePreviewModal";
 import { onDataUpdated } from "../../lib/socketClient";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
@@ -56,6 +59,7 @@ function StudentBlog() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedPostId, setSelectedPostId] = useState("");
+  const [showComments, setShowComments] = useState(false);
   const [newComment, setNewComment] = useState("");
   const [replyDrafts, setReplyDrafts] = useState({});
   const [activeReplyInput, setActiveReplyInput] = useState("");
@@ -107,6 +111,7 @@ function StudentBlog() {
 
   useEffect(() => {
     if (!selectedPostId) return;
+    setShowComments(false);
     dispatch(markBlogPostViewed(selectedPostId));
     dispatch(fetchBlogComments(selectedPostId));
   }, [dispatch, selectedPostId]);
@@ -204,7 +209,8 @@ function StudentBlog() {
           }}
           className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100"
         >
-          {"<-"} Back to Blog
+          <ArrowLeft className="h-4 w-4" />
+          Back to Blog
         </button>
 
         <Card className="bg-white border border-slate-200 overflow-hidden">
@@ -228,16 +234,23 @@ function StudentBlog() {
           )}
 
           <div className="p-8">
-            <div className="flex flex-wrap gap-2 mb-4">
-              <Badge className="bg-emerald-100 text-emerald-700">{selectedPost.category}</Badge>
+  
+              <div className="flex items-center flex-wrap gap-4 mb-4">
               {selectedPost.tags.map((tag) => (
-                <Badge key={tag} variant="outline" className="text-slate-600">
+                <Badge key={tag} variant="outline" className="text-white text-sm bg-emerald-400 border-emerald-300">
                   {tag}
                 </Badge>
               ))}
-            </div>
+              </div>
 
-            <h1 className="text-slate-900 mb-4">{selectedPost.title}</h1>
+            <h1 className="text-slate-900 mb-4 text-2xl font-bold">{selectedPost.title}</h1>
+            <div className="prose max-w-none">
+              {selectedPost.content.split("\n").map((paragraph, index) => (
+                <p key={`${selectedPost.id}-paragraph-${index}`} className="text-slate-700 mb-4 whitespace-pre-line">
+                  {paragraph}
+                </p>
+              ))}
+            </div>
 
             <div className="flex flex-col gap-4 mb-6 pb-6 border-b border-slate-200 sm:flex-row sm:items-center">
               <Avatar
@@ -251,9 +264,9 @@ function StudentBlog() {
                 className="bg-emerald-50 text-emerald-700"
               />
               <div className="flex-1">
-                <div className="text-slate-900">{selectedPost.author}</div>
+                <div className="text-blue-500 text-lg font-semibold">{selectedPost.author}</div>
                 <div className="text-sm text-slate-600">
-                  {selectedPost.authorTitle} | {selectedPost.university}
+                  {selectedPost.authorTitle} |  {selectedPost.university}
                 </div>
               </div>
               {selectedPost.universityLogo ? (
@@ -269,23 +282,10 @@ function StudentBlog() {
                   <Calendar className="w-4 h-4" />
                   {selectedPost.publishDate}
                 </span>
-                <span className="flex items-center gap-1">
-                  <Clock className="w-4 h-4" />
-                  {selectedPost.readTime}
-                </span>
               </div>
             </div>
 
-            <div className="prose max-w-none">
-              {selectedPost.content.split("\n").map((paragraph, index) => (
-                <p key={`${selectedPost.id}-paragraph-${index}`} className="text-slate-700 mb-4 whitespace-pre-line">
-                  {paragraph}
-                </p>
-              ))}
-            </div>
-
-            <div className="mt-8 pt-6 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
-              <span>{selectedPost.views.toLocaleString()} views</span>
+            <div className="mt-8 border-slate-200 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
               <div className="flex items-center gap-3">
                 <button
                   type="button"
@@ -299,76 +299,91 @@ function StudentBlog() {
                   <Heart className={`h-4 w-4 ${selectedPost.likedByMe ? "fill-rose-500 text-rose-500" : ""}`} />
                   {selectedPost.likesCount}
                 </button>
-                <span className="inline-flex items-center gap-1 text-xs text-slate-600">
-                  <MessageCircle className="h-4 w-4" />
-                  {selectedPost.commentsCount}
-                </span>
-                <span className="inline-flex items-center gap-1 text-xs text-slate-600">
-                  <Reply className="h-4 w-4" />
-                  {selectedPost.repliesCount}
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-8 border-t border-slate-200 pt-6 space-y-4">
-              <h3 className="text-slate-900">Comments</h3>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={newComment}
-                  onChange={(event) => setNewComment(event.target.value)}
-                  placeholder="Write a comment..."
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
                 <button
                   type="button"
-                  onClick={handleAddComment}
-                  disabled={isSubmitting || !newComment.trim()}
-                  className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700 disabled:opacity-70"
+                  onClick={() => setShowComments((previous) => !previous)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100"
                 >
-                  <Send className="h-4 w-4" />
-                  Post
+                  <MessageCircle className="h-4 w-4" />
+                  {selectedPost.commentsCount + selectedPost.repliesCount}
                 </button>
               </div>
-
-              {actionError || commentError ? (
-                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                  {actionError || commentError}
-                </p>
-              ) : null}
-
-              {isLoadingComments ? (
-                <p className="text-sm text-slate-600">Loading comments...</p>
-              ) : null}
-
-              {!isLoadingComments && comments.length === 0 ? (
-                <p className="text-sm text-slate-500">No comments yet. Start the discussion.</p>
-              ) : null}
-
-              {!isLoadingComments && comments.length > 0 ? (
-                <div className="space-y-3">
-                  {comments.map((comment) => (
-                    <CommentItem
-                      key={comment.id}
-                      comment={comment}
-                      replyDraft={replyDrafts[comment.id] || ""}
-                      isReplyInputOpen={activeReplyInput === comment.id}
-                      onReplyToggle={() =>
-                        setActiveReplyInput((previous) => (previous === comment.id ? "" : comment.id))
-                      }
-                      onReplyDraftChange={(value) =>
-                        setReplyDrafts((previous) => ({ ...previous, [comment.id]: value }))
-                      }
-                      onReplySubmit={() => handleAddReply(comment.id)}
-                      onCommentLike={handleToggleCommentLike}
-                      onReplyLike={handleToggleCommentLike}
-                      isSubmitting={isSubmitting}
-                    />
-                  ))}
-                </div>
-              ) : null}
+              <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+                <Eye className="h-4 w-4" />
+                {(selectedPost.views || 0).toLocaleString()} views
+              </span>
             </div>
+
+            {showComments ? (
+              <div className="mt-8 border-t border-slate-200 pt-6 space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <h3 className="text-slate-900">Comments</h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowComments(false)}
+                    className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100"
+                  >
+                    Hide Comments
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newComment}
+                    onChange={(event) => setNewComment(event.target.value)}
+                    placeholder="Write a comment..."
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddComment}
+                    disabled={isSubmitting || !newComment.trim()}
+                    className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700 disabled:opacity-70"
+                  >
+                    <Send className="h-4 w-4" />
+                    Post
+                  </button>
+                </div>
+
+                {actionError || commentError ? (
+                  <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {actionError || commentError}
+                  </p>
+                ) : null}
+
+                {isLoadingComments ? (
+                  <p className="text-sm text-slate-600">Loading comments...</p>
+                ) : null}
+
+                {!isLoadingComments && comments.length === 0 ? (
+                  <p className="text-sm text-slate-500">No comments yet. Start the discussion.</p>
+                ) : null}
+
+                {!isLoadingComments && comments.length > 0 ? (
+                  <div className="space-y-3">
+                    {comments.map((comment) => (
+                      <CommentItem
+                        key={comment.id}
+                        comment={comment}
+                        replyDraft={replyDrafts[comment.id] || ""}
+                        isReplyInputOpen={activeReplyInput === comment.id}
+                        onReplyToggle={() =>
+                          setActiveReplyInput((previous) => (previous === comment.id ? "" : comment.id))
+                        }
+                        onReplyDraftChange={(value) =>
+                          setReplyDrafts((previous) => ({ ...previous, [comment.id]: value }))
+                        }
+                        onReplySubmit={() => handleAddReply(comment.id)}
+                        onCommentLike={handleToggleCommentLike}
+                        onReplyLike={handleToggleCommentLike}
+                        isSubmitting={isSubmitting}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </Card>
         <ImagePreviewModal
@@ -471,15 +486,19 @@ function StudentBlog() {
                     <Badge className="bg-emerald-100 text-emerald-700 text-xs items-end">{post.category}</Badge>
                 </div>
 
-                <h3 className="text-slate-900 mb-2 line-clamp-2">{post.title}</h3>
+                <h3 className="text-slate-900 font-semibold mb-2 line-clamp-2">
+                  <HighlightText text={post.title} query={searchQuery} />
+                </h3>
 
-                <p className="text-slate-600 text-sm mb-4 line-clamp-3">{post.excerpt}</p>
+                <p className="text-slate-600 text-sm mb-4 line-clamp-3">
+                  <HighlightText text={post.excerpt} query={searchQuery} />
+                </p>
 
                 <div className="flex flex-wrap gap-2 mb-4">
                   {post.tags.slice(0, 3).map((tag) => (
                     <Badge key={tag} variant="outline" className="text-xs">
                       <Tag className="w-3 h-3 mr-1" />
-                      {tag}
+                      <HighlightText text={tag} query={searchQuery} />
                     </Badge>
                   ))}
                 </div>
@@ -491,11 +510,11 @@ function StudentBlog() {
                   </span>
                   <span className="inline-flex items-center gap-1">
                     <MessageCircle className="h-3.5 w-3.5" />
-                    {post.commentsCount}
+                    {post.commentsCount+post.repliesCount}
                   </span>
                   <span className="inline-flex items-center gap-1">
-                    <Reply className="h-3.5 w-3.5" />
-                    {post.repliesCount}
+                    <Eye className="h-3.5 w-3.5" />
+                    {(post.views || 0).toLocaleString()}
                   </span>
                 </div>
 

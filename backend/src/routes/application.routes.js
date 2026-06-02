@@ -6,6 +6,7 @@ const {
   payApplicationFee,
   updateMyDraftApplication,
   deleteMyDraftApplication,
+  deleteUniversityApplication,
   getUniversityApplications,
   updateApplicationStatus,
   assignRollNumber,
@@ -30,6 +31,11 @@ router.get(
   "/university/me",
   authorize(ROLES.UNIVERSITY, ROLES.ADMIN),
   getUniversityApplications
+);
+router.delete(
+  "/university/me/:id",
+  authorize(ROLES.UNIVERSITY, ROLES.ADMIN),
+  deleteUniversityApplication
 );
 router.patch(
   "/:id/status",
