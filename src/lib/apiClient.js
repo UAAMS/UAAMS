@@ -1,5 +1,5 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
-const AUTH_TOKEN_KEY = "uaams_auth_token";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const AUTH_TOKEN_KEY = import.meta.env.TOKEN;
 
 const getStoredToken = () => {
   try {
