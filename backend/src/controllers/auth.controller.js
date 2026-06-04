@@ -179,11 +179,6 @@ const register = asyncHandler(async (req, res) => {
     password,
     username,
     phone,
-    location,
-    website,
-    establishedYear,
-    studentCount,
-    programsOffered,
     representativeName,
   } = req.body;
 
@@ -230,12 +225,7 @@ const register = asyncHandler(async (req, res) => {
     if (!isValidPhone(phone)) {
       throw new ApiError(400, "Enter a valid Pakistani mobile number.");
     }
-    if (!isNumberInRange(establishedYear, 1800, new Date().getFullYear())) {
-      throw new ApiError(400, "Enter a valid established year.");
-    }
-    if (!isNumberInRange(studentCount, 1, 1000000)) {
-      throw new ApiError(400, "Enter a valid student count.");
-    }
+    
   }
 
   const existingEmail = await User.findOne({ email: normalizedEmail });
@@ -263,11 +253,6 @@ const register = asyncHandler(async (req, res) => {
     passwordHash: await bcrypt.hash(String(password), 10),
     username: username ? String(username).trim().toLowerCase() : undefined,
     phone: phone ? String(phone).trim() : "",
-    location: location ? String(location).trim() : "",
-    website: website ? String(website).trim() : "",
-    establishedYear: establishedYear ? String(establishedYear).trim() : "",
-    studentCount: studentCount ? String(studentCount).trim() : "",
-    programsOffered: programsOffered ? String(programsOffered).trim() : "",
     representativeName: representativeName ? String(representativeName).trim() : "",
     emailVerificationTokenHash: hashToken(verificationToken),
     emailVerificationExpiresAt: new Date(Date.now() + EMAIL_VERIFICATION_EXPIRY_MS),
@@ -331,12 +316,12 @@ const login = asyncHandler(async (req, res) => {
   }
 
   const normalizedIdentifier = String(identifier).trim().toLowerCase();
-  if (role !== ROLES.BLOGGER && !isValidEmail(normalizedIdentifier)) {
+  if (![ROLES.BLOGGER, ROLES.UNIVERSITY].includes(role) && !isValidEmail(normalizedIdentifier)) {
     throw new ApiError(400, "Enter a valid email address.");
   }
 
   const query = { role };
-  if (role === ROLES.BLOGGER) {
+  if ([ROLES.BLOGGER, ROLES.UNIVERSITY].includes(role)) {
     query.$or = [{ email: normalizedIdentifier }, { username: normalizedIdentifier }];
   } else {
     query.email = normalizedIdentifier;

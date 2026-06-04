@@ -24,15 +24,9 @@ const defaultForm = {
   name: "",
   representativeName: "",
   email: "",
-  username: "",
   password: "",
   confirmPassword: "",
   phone: "",
-  location: "",
-  website: "",
-  establishedYear: "",
-  studentCount: "",
-  programsOffered: "",
 };
 
 export const RegisterPage = () => {
@@ -80,15 +74,7 @@ export const RegisterPage = () => {
       if (!isValidPhone(formData.phone)) {
         nextErrors.phone = "Enter a valid Pakistani mobile number, for example +92-300-1234567.";
       }
-      if (formData.location.trim().length < 2) {
-        nextErrors.location = "Enter the university city or location.";
-      }
-      if (!isNumberInRange(formData.establishedYear, 1800, new Date().getFullYear())) {
-        nextErrors.establishedYear = "Enter a valid established year.";
-      }
-      if (!isNumberInRange(formData.studentCount, 1, 1000000)) {
-        nextErrors.studentCount = "Enter a valid student count.";
-      }
+      
     } else if (!isValidName(formData.name)) {
       nextErrors.name = "Use alphabetic letters and spaces only.";
     }
@@ -200,6 +186,7 @@ export const RegisterPage = () => {
                 error={fieldErrors.email}
                 required
               />
+
             </div>
 
             {isUniversity ? (
@@ -225,59 +212,8 @@ export const RegisterPage = () => {
                     error={fieldErrors.phone}
                     required
                   />
-                  <AuthField
-                    icon={<Building2 className="h-4 w-4" />}
-                    label="Location"
-                    value={formData.location}
-                    onChange={(value) => updateField("location", value)}
-                    placeholder="City, Province"
-                    error={fieldErrors.location}
-                    required
-                  />
                 </div>
-
-                <SectionLabel>University Profile</SectionLabel>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <AuthField
-                    label="Website"
-                    type="url"
-                    value={formData.website}
-                    onChange={(value) => updateField("website", value)}
-                    placeholder="https://www.university.edu"
-                  />
-                  <AuthField
-                    label="Established Year"
-                    type="number"
-                    value={formData.establishedYear}
-                    onChange={(value) => updateField("establishedYear", value)}
-                    placeholder="e.g., 1990"
-                    error={fieldErrors.establishedYear}
-                    required
-                  />
-                  <AuthField
-                    label="Students"
-                    type="number"
-                    value={formData.studentCount}
-                    onChange={(value) => updateField("studentCount", value)}
-                    placeholder="e.g., 5000"
-                    error={fieldErrors.studentCount}
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase text-emerald-700">
-                    Programs Offered
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={formData.programsOffered}
-                    onChange={(event) => updateField("programsOffered", event.target.value)}
-                    placeholder="List programs offered"
-                    className={`${authInputClass} min-h-24 resize-y`}
-                    required
-                  />
-                </div>
+                
               </>
             ) : null}
 

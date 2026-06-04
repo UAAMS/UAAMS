@@ -41,9 +41,11 @@ export const LoginPage = () => {
     }
   }, [navigate, roleParam]);
 
+  const canUseUsername = role === "blogger" || role === "university";
+
   const handleSubmit = async (event) => {
     event.preventDefault();
-    if (role !== "blogger" && !isValidEmail(identifier)) {
+    if (!canUseUsername && !isValidEmail(identifier)) {
       setMessage("Enter a valid email address.");
       return;
     }
@@ -88,16 +90,16 @@ export const LoginPage = () => {
       <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6">
         <div>
           <label className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase text-emerald-700">
-            {role === "blogger" ? <UserRound className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
-            {role === "blogger" ? "Email or Username" : "Email"}
+            {canUseUsername ? <UserRound className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
+            {canUseUsername ? "Email or Username" : "Email"}
           </label>
           <input
-            type={role === "blogger" ? "text" : "email"}
+            type={canUseUsername ? "text" : "email"}
             value={identifier}
             onChange={(event) => setIdentifier(event.target.value)}
-            placeholder={role === "blogger" ? "campus_writer" : "you@example.com"}
-            pattern={role === "blogger" ? undefined : emailPattern.source}
-            title={role === "blogger" ? undefined : "Enter a valid email address."}
+            placeholder={canUseUsername ? "you@example.com or university_username" : "you@example.com"}
+            pattern={canUseUsername ? undefined : emailPattern.source}
+            title={canUseUsername ? undefined : "Enter a valid email address."}
             className={authInputClass}
             required
           />

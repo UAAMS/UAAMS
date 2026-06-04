@@ -62,7 +62,7 @@ export const PageUserHeader = ({ notifications = [], themeClasses = {} }) => {
           </button>
 
           {isNotificationOpen ? (
-            <div className="absolute right-0 z-50 mt-2 w-80 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+            <div className="absolute right-0 z-50 mt-2 w-screen max-w-[90vw] sm:w-80 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
               <div className="mb-2 flex items-center justify-between">
                 <div className="text-sm text-slate-900">Notifications</div>
               </div>

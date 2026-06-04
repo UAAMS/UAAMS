@@ -113,7 +113,7 @@ function UniversityManagement() {
             type="text"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Search by name, email, location"
+            placeholder="Search by name, email"
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <select
@@ -156,7 +156,7 @@ function UniversityManagement() {
                   <h3 className="text-slate-900"><HighlightText text={university.name} query={searchTerm} /></h3>
                   <p className="text-sm text-slate-600"><HighlightText text={university.email} query={searchTerm} /></p>
                   <p className="text-xs text-slate-500 mt-1">
-                    <HighlightText text={university.location} query={searchTerm} /> | Representative: <HighlightText text={university.representative} query={searchTerm} />
+                    Representative: <HighlightText text={university.representative} query={searchTerm} />
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
                     Registered: {formatDate(university.createdAt)} | Applications:{" "}
