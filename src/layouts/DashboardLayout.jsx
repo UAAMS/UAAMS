@@ -452,7 +452,7 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
                     </button>
 
                     {isNotificationOpen ? (
-                      <div className="absolute right-0 z-50 mt-2 w-80 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+                      <div className="absolute -right-36 z-50 mt-3 w-72 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
                         <div className="mb-2 flex items-center justify-between">
                           <div className="text-sm text-slate-900">Notifications</div>
                           <button
