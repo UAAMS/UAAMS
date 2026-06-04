@@ -8,7 +8,11 @@ const UniversityForm = require("../models/UniversityForm");
 const Application = require("../models/Application");
 const Announcement = require("../models/Announcement");
 const BlogPost = require("../models/BlogPost");
-const { ROLES, UNIVERSITY_APPROVAL, USER_STATUS } = require("../constants/roles");
+const {
+  ROLES,
+  UNIVERSITY_APPROVAL,
+  USER_STATUS,
+} = require("../constants/roles");
 
 const defaultFormFields = [
   {
@@ -67,6 +71,453 @@ const defaultFormFields = [
   },
 ];
 
+const toSlug = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+const getInitials = (name) =>
+  String(name || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 4)
+    .toUpperCase();
+
+const makeUniversityLogoDataUrl = (name, color = "#1d4ed8") => {
+  const initials = getInitials(name);
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+      <rect width="256" height="256" rx="48" fill="${color}"/>
+      <circle cx="128" cy="96" r="48" fill="#ffffff" opacity="0.18"/>
+      <path d="M48 177h160v20H48zM68 147h24v30H68zM116 147h24v30h-24zM164 147h24v30h-24zM52 130l76-46 76 46v14H52z" fill="#ffffff" opacity="0.9"/>
+      <text x="128" y="226" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#ffffff">${initials}</text>
+    </svg>
+  `;
+
+  return `data:image/svg+xml;base64,${Buffer.from(svg.replace(/\s+/g, " ").trim()).toString("base64")}`;
+};
+
+const provinceByCity = {
+  Abbottabad: "Khyber Pakhtunkhwa",
+  Bahawalpur: "Punjab",
+  Faisalabad: "Punjab",
+  Islamabad: "Islamabad Capital Territory",
+  Karachi: "Sindh",
+  Kharian: "Punjab",
+  Lahore: "Punjab",
+  Multan: "Punjab",
+  Quetta: "Balochistan",
+  Rawalpindi: "Punjab",
+  Wah: "Punjab",
+};
+
+const programSeedLines = `
+PU_ALLAMAIQBAL_CAMPUS | BS_ARCHITECTURE
+UET_LAHORE_CAMPUS|BS_ARCHITECURE_ENGINEEERING
+UET_LAHORE_CAMPUS|BS_ARCHITECTURE
+UET_LAHORE_CAMPUS|BS_AUTOMOTIVE_ENGINEERING
+UET_LAHORE|BACHELOR_OF_BUSINESS_ADMINISTRATION
+UET_LAHORE|BACHELOR_OF_BUSINESS_INFORMATION_TECHNOLOGY
+UET_LAHORE|BIOMEDICAL_ENGINEERING
+UET_LAHORE|CHEMICAL_ENGINEERING
+UET_LAHORE|BS_CHEMISTRY
+UET_LAHORE|BS_CITY_&_REGIONAL_PLANNIG
+UET_LAHORE|BS_CIVIL_ENGINEERING
+UET_LAHORE|BS_COMPUTER_SCIENCE
+UET_LAHORE|BS_DATA_SCIENCE
+UET_LAHORE|BS_ELECTRICAL_ENGINEERING
+UET_LAHORE|BS_ENERGY_SYSTEMS_AND_MANAGEMENT
+UET_LAHORE|BS_ENVIRONMENTAL_SCIENCE
+UET_LAHORE|BS|FOOD_SCIENCE_&_TECHNOLOGY
+UET_LAHORE|BS_GEOLOGICAL_ENGINEERING
+UET_LAHORE|BS_INDUSTRIAL_&_MANUFACTURING_ENGINEERING
+UET_LAHORE|BS_MATHEMATICS
+UET_LAHORE|BS_MECHANICAL_ENGINEERING
+UET_LAHORE|BS_MECHATRONICS_&_CONTROL_ENGINEERING
+UET_LAHORE|BS_METALLURGICAL_&_MATERIALS_ENGINEERING
+UET_LAHORE|BS_MINING_ENGINEERING
+UET_LAHORE|BS_PETROLEUM_&_GAS_ENGINEERING
+UET_LAHORE|BS_PHYSICS
+UET_LAHORE|BS_POLYMER_ENGINEERING
+UET_LAHORE|BS_PRODUCT_&_INDUSTRIAL_DESIGN
+UET_LAHORE|BS_SOFTWARE_ENGINEERING
+UET_LAHORE|BS_TEXTILE_ENGINEERING
+UET_LAHORE|BS_TRANSPORTATION_ENGINEERING
+GOVERNMENT_COLLEGE_UNIVERSITY_FAISALABAD|BS_CHEMISTRY
+GOVERNMENT_COLLEGE_UNIVERSITY_FAISALABAD|BS_HOME_ECONOMICS
+GOVERNMENT_COLLEGE_UNIVERSITY_FAISALABAD|BS_EASTERN_MEDICINE
+GOVERNMENT_COLLEGE_UNIVERSITY_FAISALABAD|BED
+GOVERNMENT_COLLEGE_UNIVERSITY_FAISALABAD|BS_ENVIRONMENTAL_SCIENCE
+GOVERNMENT_COLLEGE_UNIVERSITY_FAISALABAD|BS_FOOD_SCIENCES
+GOVERNMENT_COLLEGE_UNIVERSITY_FAISALABAD|BS_HISTORY
+GOVERNMENT_COLLEGE_UNIVERSITY_FAISALABAD|BS_PAKISTAN_STUDIES
+GOVERNMENT_COLLEGE_UNIVERSITY_FAISALABAD|BS_PHYSIOLOGY
+GOVERNMENT_COLLEGE_UNIVERSITY_FAISALABAD|BS_PUBLIC_ADMINISTRATION
+GOVERNMENT_COLLEGE_UNIVERSITY_FAISALABAD|BS_SOFTWARE_ENGINEERING
+GOVERNMENT_COLLEGE_UNIVERSITY_FAISALABAD|BS_ZOOLOGY
+NUST_ISLAMABAD|BS_SOFTWARE_ENGINEERING
+NUST_ISLAMABAD|BS_ELECTRICAL_ENGINEERING
+NUST_ISLAMABAD|BS_CIVIL_ENGINEERING
+NUST_ISLAMABAD|BS_MACHENICAL_ENGINEERING
+NUST_ISLAMABAD|BS_AEROSPACE_EGINEERING
+NUST_ISLAMABAD|BS_INFORMATION_SECURITY_ENGINEERING
+NUST_ISLAMABAD|BS_MECHATRONICS_ENGINEERING
+NUST_ISLAMABAD|BS_ENVIRONMENTAL_ENGINEERING
+NUST_ISLAMABAD|BS_NAVAL_ARCHITECTURE_ENGINEERING
+NUST_ISLAMABAD|BS_AVIONICS_ENGINEERING
+NUST_ISLAMABAD|BS_COMPUTER_ENGINEERING
+NUST_ISLAMABAD|BS_MATERIAL_ENGINEERING
+NUST_ISLAMABAD|BACHELOR_OF_BUSINESS_ADMINISTRATION
+NUST_ISLAMABAD|BS_ACCOUNTING_AND_FINANCE
+NUST_ISLAMABAD|BS_ECONOMICS
+NUST_ISLAMABAD|BS_PSYCHOLOGY
+NUST_ISLAMABAD|BS_PUBLIC_ADMINISTRATION
+NUST_ISLAMABAD|BS_TOURISM_AND_HOSPITALITY
+NUST_ISLAMABAD|BS_MASS_COMMUNICATION
+NUST_ISLAMABAD|BS_COMPUTER_SCIENCE
+NUST_ISLAMABAD|BS_ARTIFICIAL_INTEllIGENCE
+NUST_ISLAMABAD|BS_DATA_SCIENCE
+NUST_ISLAMABAD|BS_BIOINFORMATIC
+FAST_LAHORE|BS_COMPUTER_SCIENCE
+FAST_LAHORE|BS_SOFTWARE_ENGINEERING
+FAST_LAHORE|BS_ARTIFICIAL_INTEllIGENCE
+FAST_LAHORE|BS_DATA_SCIENCE
+FAST_LAHORE|BS_CYBER_SECURITY
+FAST_LAHORE|BS_ELECTRICAL_ENGINEERING
+FAST_LAHORE|BACHELOR_OF_BUSINESS_ADMINISTRATION
+FAST_LAHORE|BS_CIVIL_ENGINEERING
+FAST_LAHORE|BS_BUSINESS_ANALYTICS
+NED_KARACHI|BS_CIVIL_ENGINEERING
+NED_KARACHI|BS_URBAN_ENGINEERING
+NED_KARACHI|BS_CONSTRUCTION_ENGINEERING
+NED_KARACHI|BS_MACHANICAL_ENGINEERING
+NED_KARACHI|BS_TEXTILE_ENGINEERING
+NED_KARACHI|BS_INDUSTRIAL_AND_MANUFACTURING_ENGINEERING
+NED_KARACHI|BS_AUTOMATIVE_ENGINEERING
+NED_KARACHI|BS_ELECTRICAL_ENGINEERING
+NED_KARACHI|BS_PETROLEOUM_ENGINEERING
+NED_KARACHI|BS_TELECOMMUNICATION_ENGINEERING
+NED_KARACHI|BS_COMPUTER_SYSTEM_ENGINEERING
+NED_KARACHI|BS_ELECTRONIC_ENGINEERING
+NED_KARACHI|BS_CHEMICAL_ENGINEERING
+NED_KARACHI|BS_METALLURIGICAL_ENGINEERING
+NED_KARACHI|BS_MAETERIAL_ENGINEERING
+NED_KARACHI|BS_POLYMER_AND_PETROLEOUM_ENGINEERING
+NED_KARACHI|BS_FOOD_ENGINEERING
+ARMY_MEDICAL_COLLEGE|MBSS
+CMH_LAHORE_MEDICAL_COLLEGE|MBBS
+CMH_MULTAN_MEDICAL_COLLEGE|MBBS
+CMH_BAHAWALPUR_MEDICAL_COLLEGE|MBBS
+CMH_KHARIAN_MEDICAL_COLLEGE|MBBS
+HITECH_INSTITUTE_OF_MEDICAL_SCIENCES|MBBS
+KARACI_INSTITUTE_OF_MEDICAL_SCIENCES|MBBS
+FAZAIA_MEDICAL_COLLEGE_ISLAMABAD|MBBS
+BEHRIA_UNIVERSITY_MEDICAL_COLLEGE|MBBS
+WAH_MEDICAL_COLLEGE_WAH|MBBS
+QUETTA_INSTITUTE_OF_MEDICAL_SCIENCES|MBBS
+FOUNDATION_UNIVERSITY_MEDICAL_COLLEGE|MBBS
+NUST_SCHOOL_OF_HEALTH_SCIENCES|MBBS
+AIR_UNIVERSITY_ISLAMABAD|BS_MACHENICAL_ENGINEERING
+AIR_UNIVERSITY_ISLAMABAD|BS_ELECTRICAL_ENGINEERING
+AIR_UNIVERSITY_ISLAMABAD|BS_TELECOM_ENGINEERING
+AIR_UNIVERSITY_ISLAMABAD|BS_COMPUTER_ENGINEERING
+AIR_UNIVERSITY_ISLAMABAD|BS_BIOMEDICAL_ENGINEERING
+AIR_UNIVERSITY_ISLAMABAD|BS_ELECTRONICS_ENGINEERING
+AIR_UNIVERSITY_ISLAMABAD| BS_MECHATRONICS_ENGINEERING
+AIR_UNIVERSITY_ISLAMABAD|BS_CYBER_SECURITY_MANAGEMENT
+AIR_UNIVERSITY_ISLAMABAD|BS_COMPUTER_SCIENCE_ENGINEERING
+AIR_UNIVERSITY_ISLAMABAD|BS_SOFTWARE_ENGINEERING
+AIR_UNIVERSITY_ISLAMABAD|BS_INFORMATION_TECHNOLOGY
+AIR_UNIVERSITY_ISLAMABAD|BS_DATA_SCIENCES
+AIR_UNIVERSITY_ISLAMABAD|BS_GAMING_AND_MULTIMEDIA
+AIR_UNIVERSITY_ISLAMABAD|BS_ARTIFICIAL_INTELLIGENCE
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|BS_PAKSITAN_STUDIES
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|BS_ENGLISH
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|BACHELOR_OF_BUSINESS_ADMINISTRATION
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|BS_BIOCHEMISTRY
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|BS_ECONOMICS
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|BS_CHEMISTRY
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|BS_FOOD_SCIENCE_AND_NUTRITION
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|BS_GEOLOGY
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|BS_METHAMATICS
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|BS_MICROBIOLOGY
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|BS_MEDICAL_LAB_TECHNOLOGY
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|BS_PHYSICS
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|BS_PSYCHOLOGY
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|BS_SOFTWARE_ENGINEERING
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|BS_ZOOLOGY
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|BS_COMPUTER_SCIENCE
+ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY|PHARMD
+`;
+
+const universityProgramAliases = {
+  PU_ALLAMAIQBAL_CAMPUS: "PU Allama Iqbal Campus",
+  UET_LAHORE_CAMPUS: "UET Lahore",
+  UET_LAHORE: "UET Lahore",
+  GOVERNMENT_COLLEGE_UNIVERSITY_FAISALABAD:
+    "Government College University Faisalabad",
+  NUST_ISLAMABAD: "NUST Islamabad",
+  FAST_LAHORE: "FAST Lahore",
+  NED_KARACHI: "NED Karachi",
+  ARMY_MEDICAL_COLLEGE: "Army Medical College",
+  CMH_LAHORE_MEDICAL_COLLEGE: "CMH Lahore Medical College",
+  CMH_MULTAN_MEDICAL_COLLEGE: "CMH Multan Medical College",
+  CMH_BAHAWALPUR_MEDICAL_COLLEGE: "CMH Bahawalpur Medical College",
+  CMH_KHARIAN_MEDICAL_COLLEGE: "CMH Kharian Medical College",
+  HITECH_INSTITUTE_OF_MEDICAL_SCIENCES: "Hi-Tech Institute of Medical Sciences",
+  KARACI_INSTITUTE_OF_MEDICAL_SCIENCES: "Karachi Institute of Medical Sciences",
+  KARACHI_INSTITUTE_OF_MEDICAL_SCIENCES:
+    "Karachi Institute of Medical Sciences",
+  FAZAIA_MEDICAL_COLLEGE_ISLAMABAD: "Fazaia Medical College Islamabad",
+  BEHRIA_UNIVERSITY_MEDICAL_COLLEGE: "Behria University Medical College",
+  WAH_MEDICAL_COLLEGE_WAH: "Wah Medical College Wah",
+  QUETTA_INSTITUTE_OF_MEDICAL_SCIENCES: "Quetta Institute of Medical Sciences",
+  FOUNDATION_UNIVERSITY_MEDICAL_COLLEGE:
+    "Foundation University Medical College",
+  NUST_SCHOOL_OF_HEALTH_SCIENCES: "NUST School of Health Sciences",
+  AIR_UNIVERSITY_ISLAMABAD: "Air University Islamabad",
+  ABBOTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY:
+    "Abbottabad University of Science and Technology",
+  ABBOTTABAD_UNIVERSITY_OF_SCIENCE_AND_TECHNOLOGY:
+    "Abbottabad University of Science and Technology",
+};
+
+const normalizeProgramName = (value) => {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/\|/g, "_")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ");
+
+  if (!normalized) return "";
+  if (/^mbbs$/i.test(normalized)) return "MBBS";
+  if (/^mbss$/i.test(normalized)) return "MBSS";
+  if (/^bed$/i.test(normalized)) return "BEd";
+  if (/^pharmd$/i.test(normalized)) return "PharmD";
+
+  return normalized.replace(/\b[a-zA-Z&]+\b/g, (word) => {
+    if (/^(BS|BBA)$/i.test(word)) return word.toUpperCase();
+    if (/^OF$/i.test(word)) return "of";
+    if (/^AND$/i.test(word)) return "and";
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  });
+};
+
+const makeProgram = (name, index) => ({
+  name,
+  seats: 50 + (index % 4) * 10,
+  feeRange: /^MB/i.test(name)
+    ? "PKR 1,200,000 - 1,800,000/year"
+    : "PKR 250,000 - 500,000/year",
+  requiredAggregate: /^MB/i.test(name) ? 82 : 60 + (index % 6),
+});
+
+const buildUniversityPrograms = () => {
+  const programsByUniversity = new Map();
+
+  programSeedLines
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((line) => {
+      const [rawUniversity, ...rawProgramParts] = line.split("|");
+      const universityName =
+        universityProgramAliases[String(rawUniversity || "").trim()];
+      const programName = normalizeProgramName(rawProgramParts.join("|"));
+      if (!universityName || !programName) return;
+
+      if (!programsByUniversity.has(universityName)) {
+        programsByUniversity.set(universityName, []);
+      }
+
+      const programs = programsByUniversity.get(universityName);
+      if (!programs.some((program) => program.name === programName)) {
+        programs.push(makeProgram(programName, programs.length));
+      }
+    });
+
+  return programsByUniversity;
+};
+
+const universityProgramsByName = buildUniversityPrograms();
+
+const makePaymentMethods = (shortName) => [
+  {
+    type: "bank",
+    title: "Admission Processing Fee",
+    accountTitle: `${shortName || "University"} Admissions`,
+    bankName: "HBL",
+    accountNumber: "001234567890",
+    iban: "PK36HABB000000001234567890",
+    instructions:
+      "Upload the paid challan or transaction screenshot with your application.",
+    isActive: true,
+  },
+];
+
+const universityProfileSeedData = {
+  "PU Allama Iqbal Campus": {
+    universityName: "University of the Punjab - Allama Iqbal Campus",
+    shortName: "PU",
+    type: "public",
+    established: "1882",
+    accreditation: "HEC",
+    totalStudents: "45,000+",
+    totalPrograms: "80+",
+    ranking: "Among Pakistan's oldest and largest public universities",
+    color: "#047857",
+  },
+  "UET Lahore": {
+    universityName: "University of Engineering and Technology Lahore",
+    shortName: "UET",
+    type: "public",
+    established: "1921",
+    accreditation: "HEC, PEC",
+    totalStudents: "12,000+",
+    totalPrograms: "35+",
+    ranking: "Leading public engineering university",
+    color: "#b91c1c",
+  },
+  "Government College University Faisalabad": {
+    universityName: "Government College University Faisalabad",
+    shortName: "GCUF",
+    type: "public",
+    established: "1897",
+    accreditation: "HEC",
+    totalStudents: "20,000+",
+    totalPrograms: "60+",
+    ranking: "Major public university in central Punjab",
+    color: "#4338ca",
+  },
+  "FAST Lahore": {
+    universityName:
+      "National University of Computer and Emerging Sciences - Lahore",
+    shortName: "FAST-NUCES",
+    type: "private",
+    established: "2000",
+    accreditation: "HEC, NCEAC, PEC",
+    totalStudents: "6,000+",
+    totalPrograms: "20+",
+    ranking: "Known for computing and engineering education",
+    color: "#0f766e",
+  },
+  "NED Karachi": {
+    universityName: "NED University of Engineering and Technology",
+    shortName: "NED",
+    type: "public",
+    established: "1921",
+    accreditation: "HEC, PEC",
+    totalStudents: "11,000+",
+    totalPrograms: "35+",
+    ranking: "Prominent engineering university in Sindh",
+    color: "#0369a1",
+  },
+  "Air University Islamabad": {
+    universityName: "Air University Islamabad",
+    shortName: "AU",
+    type: "public",
+    established: "2002",
+    accreditation: "HEC, PEC",
+    totalStudents: "7,000+",
+    totalPrograms: "30+",
+    ranking:
+      "Federally chartered university with engineering and management programs",
+    color: "#2563eb",
+  },
+  "Abbottabad University of Science and Technology": {
+    universityName: "Abbottabad University of Science and Technology",
+    shortName: "AUST",
+    type: "public",
+    established: "2015",
+    accreditation: "HEC",
+    totalStudents: "4,000+",
+    totalPrograms: "25+",
+    ranking: "Public science and technology university in Hazara",
+    color: "#15803d",
+  },
+};
+
+const makeUniversityProfileSeed = (uni) => {
+  const configured = universityProfileSeedData[uni.name] || {};
+  const isMedical = /medical|health|army medical|institute of medical/i.test(
+    uni.name,
+  );
+  const programs = universityProgramsByName.get(uni.name) || [];
+  const shortName =
+    configured.shortName ||
+    uni.name
+      .replace(
+        /\b(university|college|institute|of|and|the|islamabad|lahore|karachi|multan|bahawalpur|kharian|wah)\b/gi,
+        "",
+      )
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 8);
+  const profileType = configured.type || (isMedical ? "private" : "public");
+  const logo = makeUniversityLogoDataUrl(
+    shortName || uni.name,
+    configured.color || (isMedical ? "#be123c" : "#1d4ed8"),
+  );
+  const admissionsEmail = `admissions@${toSlug(shortName || uni.name)}.edu.pk`;
+  const applicationFee = isMedical
+    ? 5000
+    : profileType === "private"
+      ? 3500
+      : 2500;
+
+  return {
+    universityName: configured.universityName || uni.name,
+    shortName,
+    type: profileType,
+    established: configured.established || (isMedical ? "2008" : "2000"),
+    email: admissionsEmail,
+    phone: uni.phone,
+    website: uni.website,
+    address: `Admissions Office, ${uni.name}, ${uni.location}`,
+    city: uni.location,
+    province: provinceByCity[uni.location] || "",
+    postalCode: "",
+    about:
+      configured.about ||
+      `${configured.universityName || uni.name} is seeded in UAAMS with admissions, programs, contact details, and payment information for demo application workflows.`,
+    mission:
+      configured.mission ||
+      "To provide transparent, accessible, and merit-based admissions for students across Pakistan.",
+    vision:
+      configured.vision ||
+      "To support modern higher education through efficient digital admission services.",
+    totalStudents:
+      configured.totalStudents || (isMedical ? "1,500+" : "5,000+"),
+    totalPrograms: String(programs.length),
+    ranking:
+      configured.ranking ||
+      (isMedical
+        ? "Recognized medical education institute"
+        : "Recognized higher education institute"),
+    accreditation:
+      configured.accreditation || (isMedical ? "PMDC, HEC" : "HEC"),
+    representativeName: uni.representativeName,
+    representativePosition: "Admissions Coordinator",
+    representativeEmail: admissionsEmail,
+    representativePhone: uni.phone,
+    representativeProfilePicture: logo,
+    logo,
+    applicationFee,
+    applicationStartDate: new Date("2026-05-01T00:00:00.000Z"),
+    applicationEndDate: new Date("2026-06-30T23:59:59.000Z"),
+    acceptApplicationsThroughUaams: true,
+    allowAutoFillFromStudentProfile: true,
+    programs,
+    paymentMethods: makePaymentMethods(shortName),
+  };
+};
+
 const run = async () => {
   await connectDb();
 
@@ -105,7 +556,7 @@ const run = async () => {
     fullName: "Ayesha Khan",
     email: "student@uaams.com",
     city: "Islamabad",
-    preferredPrograms: ["Computer Science", "Software Engineering"],
+    preferredPrograms: ["BS Computer Science", "BS Software Engineering"],
     preferredCities: ["Islamabad", "Lahore"],
     matricTotalMarks: 1100,
     matricObtainedMarks: 990,
@@ -113,6 +564,9 @@ const run = async () => {
     interObtainedMarks: 1010,
   });
 
+  const primaryUniversityLogo = makeUniversityLogoDataUrl("NUST", "#1d4ed8");
+  const primaryUniversityPrograms =
+    universityProgramsByName.get("NUST Islamabad") || [];
   const university = await User.create({
     name: "NUST Islamabad",
     email: "university@uaams.com",
@@ -126,6 +580,7 @@ const run = async () => {
     website: "https://www.nust.edu.pk",
     representativeName: "Dr. Sarah Khan",
     phone: "+92-51-0000000",
+    profilePicture: primaryUniversityLogo,
   });
 
   await UniversityProfile.create({
@@ -140,22 +595,26 @@ const run = async () => {
     website: "https://www.nust.edu.pk",
     representativeName: "Dr. Sarah Khan",
     representativeEmail: "sarah.khan@nust.edu.pk",
+    representativePosition: "Director Admissions",
+    representativePhone: "+92-51-111-111-687",
+    representativeProfilePicture: primaryUniversityLogo,
+    logo: primaryUniversityLogo,
+    about:
+      "National University of Sciences and Technology (NUST) is seeded in UAAMS with a complete admissions profile for demo application workflows.",
+    mission:
+      "To provide high-quality education and admissions services through transparent, student-focused systems.",
+    vision:
+      "To be a leading technology university represented through efficient digital admission management.",
+    totalStudents: "15,000+",
+    totalPrograms: String(primaryUniversityPrograms.length),
+    ranking: "Leading science and technology university in Pakistan",
+    accreditation: "HEC, PEC",
+    applicationStartDate: new Date("2026-05-01T00:00:00.000Z"),
+    applicationEndDate: new Date("2026-06-30T23:59:59.000Z"),
     established: "1991",
     applicationFee: 2500,
-    programs: [
-      {
-        name: "Computer Science",
-        seats: 120,
-        feeRange: "PKR 400,000 - 500,000/year",
-        requiredAggregate: 75,
-      },
-      {
-        name: "Software Engineering",
-        seats: 80,
-        feeRange: "PKR 420,000 - 520,000/year",
-        requiredAggregate: 74,
-      },
-    ],
+    programs: primaryUniversityPrograms,
+    paymentMethods: makePaymentMethods("NUST"),
   });
 
   await UniversityForm.create({
@@ -430,10 +889,39 @@ const run = async () => {
     },
   ];
 
+  const additionalUniversityProfiles = additionalUniversities.map((uni) => ({
+    userSeed: uni,
+    profileSeed: makeUniversityProfileSeed(uni),
+  }));
+
   const seededAdditionalUniversities = await Promise.all(
-    additionalUniversities.map((uni) =>
-      User.create({ ...uni, username: normalizeUsername(uni.email) }),
-    )
+    additionalUniversityProfiles.map(({ userSeed, profileSeed }) =>
+      User.create({
+        ...userSeed,
+        username: normalizeUsername(userSeed.email),
+        profilePicture: profileSeed.logo,
+      }),
+    ),
+  );
+
+  await Promise.all(
+    seededAdditionalUniversities.map((uni, index) =>
+      UniversityProfile.create({
+        university: uni._id,
+        ...additionalUniversityProfiles[index].profileSeed,
+      }),
+    ),
+  );
+
+  await Promise.all(
+    seededAdditionalUniversities.map((uni) =>
+      UniversityForm.create({
+        university: uni._id,
+        fields: defaultFormFields,
+        version: 1,
+        updatedBy: uni._id,
+      }),
+    ),
   );
 
   const seededUniversityCredentials = [
@@ -501,18 +989,18 @@ const run = async () => {
     studentName: "Ayesha Khan",
     email: "student@uaams.com",
     cnic: "12345-1234567-1",
-    program: "Computer Science",
+    program: "BS Computer Science",
     aggregate: 90.91,
     matricMarks: 990,
     interMarks: 1010,
     status: "pending",
     formData: {
-      "1": "Ayesha Khan",
-      "2": "student@uaams.com",
-      "3": "+92-300-1234567",
-      "4": "12345-1234567-1",
-      "7": 990,
-      "8": 1010,
+      1: "Ayesha Khan",
+      2: "student@uaams.com",
+      3: "+92-300-1234567",
+      4: "12345-1234567-1",
+      7: 990,
+      8: 1010,
     },
     payment: {
       status: "paid",
