@@ -10,6 +10,8 @@ const paymentSchema = new mongoose.Schema(
     transactionReference: { type: String, default: "" },
     proofFileUrl: { type: String, default: "" },
     proofFileName: { type: String, default: "" },
+    stripeSessionId: { type: String, default: "" },
+    stripePaymentIntentId: { type: String, default: "" },
     paidAt: { type: Date, default: null },
   },
   { _id: false }

@@ -80,6 +80,8 @@ const normalizeUniversity = (item) => {
     .map((program) => ({
       name: String(program?.name || "").trim(),
       requiredAggregate: Number(program?.requiredAggregate || 0),
+      minimumFscPercentage: Number(item?.minimumFscPercentage || program?.minimumFscPercentage || 0),
+      minimumMatricPercentage: Number(item?.minimumMatricPercentage || program?.minimumMatricPercentage || 0),
       seats: Number(program?.seats || 0),
       feeRange: String(program?.feeRange || "").trim(),
       deadlineDate: program?.deadlineDate || null,
@@ -92,6 +94,8 @@ const normalizeUniversity = (item) => {
         .map((program) => ({
           name: String(program?.name || "").trim(),
           requiredAggregate: Number(program?.requiredAggregate || 0),
+          minimumFscPercentage: Number(item?.minimumFscPercentage || program?.minimumFscPercentage || 0),
+          minimumMatricPercentage: Number(item?.minimumMatricPercentage || program?.minimumMatricPercentage || 0),
           seats: Number(program?.seats || 0),
           feeRange: String(program?.feeRange || "").trim(),
           deadlineDate: program?.deadlineDate || null,
@@ -117,6 +121,8 @@ const normalizeUniversity = (item) => {
       ? item.programRecommendations.map((program) => ({
           name: String(program?.name || "").trim(),
           requiredAggregate: Number(program?.requiredAggregate || 0),
+          minimumFscPercentage: Number(item?.minimumFscPercentage || program?.minimumFscPercentage || 0),
+          minimumMatricPercentage: Number(item?.minimumMatricPercentage || program?.minimumMatricPercentage || 0),
           matchScore: Number(program?.matchScore || 0),
           seats: Number(program?.seats || 0),
           feeRange: String(program?.feeRange || "").trim(),
@@ -127,6 +133,8 @@ const normalizeUniversity = (item) => {
       : [],
     feeRange: item?.feeRange || "Contact university",
     requiredAggregate: Number(item?.requiredAggregate || 0),
+    minimumFscPercentage: Number(item?.minimumFscPercentage || 0),
+    minimumMatricPercentage: Number(item?.minimumMatricPercentage || 0),
     deadline: item?.deadline || "Not announced",
     matchScore: Number(item?.matchScore || 0),
     type: String(item?.type || "public"),

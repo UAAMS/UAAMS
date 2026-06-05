@@ -4,6 +4,7 @@ const {
   getMyProfile,
   updateMyProfile,
   getRecommendations,
+  getModelRecommendations,
   getMyDashboard,
   listMyAnnouncements,
   listMyMeritLists,
@@ -24,6 +25,7 @@ router.use(protect, authorize(ROLES.STUDENT), ensureStudentRole);
 router.get("/me/dashboard", getMyDashboard);
 router.get("/me/profile", getMyProfile);
 router.put("/me/profile", updateMyProfile);
+router.get("/recommendations/model", getModelRecommendations);
 router.get("/recommendations", getRecommendations);
 router.get("/me/announcements", listMyAnnouncements);
 router.get("/me/merit-lists", listMyMeritLists);

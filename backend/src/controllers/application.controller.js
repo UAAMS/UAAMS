@@ -1,6 +1,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const mongoose = require("mongoose");
+const Stripe = require("stripe");
 const Application = require("../models/Application");
 const User = require("../models/User");
 const StudentProfile = require("../models/StudentProfile");
@@ -33,6 +34,8 @@ const {
   sendAdmissionLetterIssuedEmail,
 } = require("../utils/mailer");
 const { ROLES, UNIVERSITY_APPROVAL } = require("../constants/roles");
+
+const stripe = env.stripeSecretKey ? new Stripe(env.stripeSecretKey) : null;
 
 const ensureObjectId = (id, message = "Invalid resource id.") => {
   if (!mongoose.isValidObjectId(id)) {
@@ -98,7 +101,27 @@ const hasDeadlinePassed = (value) => {
   return date.getTime() < Date.now();
 };
 
-const ensureProgramAcceptingApplications = ({ profile, programName }) => {
+const calculatePercentage = (obtainedMarks, totalMarks) => {
+  const obtained = Number(obtainedMarks || 0);
+  const total = Number(totalMarks || 0);
+  if (!obtained || !total || total <= 0) return 0;
+  return Number(((obtained / total) * 100).toFixed(2));
+};
+
+const resolveAcademicPercentage = (profile, percentageKey, obtainedKey, totalKey) => {
+  const storedPercentage = Number(profile?.[percentageKey] || 0);
+  if (storedPercentage > 0) return storedPercentage;
+  return calculatePercentage(profile?.[obtainedKey], profile?.[totalKey]);
+};
+
+const getStudentEligibilityProfile = async (studentId) =>
+  StudentProfile.findOne({ user: studentId })
+    .select(
+      "matricPercentage matricObtainedMarks matricTotalMarks interPercentage interObtainedMarks interTotalMarks",
+    )
+    .lean();
+
+const ensureProgramAcceptingApplications = ({ profile, programName, studentProfile = null }) => {
   if (profile?.acceptApplicationsThroughUaams === false) {
     throw new ApiError(400, "This university is not accepting applications through UAAMS.");
   }
@@ -117,6 +140,33 @@ const ensureProgramAcceptingApplications = ({ profile, programName }) => {
   const effectiveDeadline = resolveEffectiveDeadline(profile, matchedProgram);
   if (hasDeadlinePassed(effectiveDeadline)) {
     throw new ApiError(400, "Application deadline has passed for this program.");
+  }
+
+  if (studentProfile) {
+    const studentFscPercentage = resolveAcademicPercentage(
+      studentProfile,
+      "interPercentage",
+      "interObtainedMarks",
+      "interTotalMarks",
+    );
+    const studentMatricPercentage = resolveAcademicPercentage(
+      studentProfile,
+      "matricPercentage",
+      "matricObtainedMarks",
+      "matricTotalMarks",
+    );
+    const minimumFscPercentage = Number(profile?.minimumFscPercentage || 0);
+    const minimumMatricPercentage = Number(profile?.minimumMatricPercentage || 0);
+
+    if (
+      studentFscPercentage < minimumFscPercentage ||
+      studentMatricPercentage < minimumMatricPercentage
+    ) {
+      throw new ApiError(
+        400,
+        `You do not meet the eligibility criteria for this program. Required: FSC ${minimumFscPercentage}% and Matric ${minimumMatricPercentage}%.`,
+      );
+    }
   }
 };
 
@@ -276,6 +326,58 @@ const extractFileNameFromUrl = (value = "") => {
 };
 
 const trimTrailingSlash = (value) => String(value || "").replace(/\/+$/, "");
+
+const resolveFrontendBaseUrl = (req) =>
+  trimTrailingSlash(env.frontendUrl || req.get("origin") || "http://localhost:3000");
+
+const getStripeClient = () => {
+  if (!stripe) {
+    throw new ApiError(503, "Stripe is not configured. Add STRIPE_SECRET_KEY to backend environment.");
+  }
+  return stripe;
+};
+
+const markStripeApplicationPaid = async ({ application, session }) => {
+  if (!application) {
+    throw new ApiError(404, "Application not found.");
+  }
+
+  if (String(session?.payment_status || "") !== "paid") {
+    throw new ApiError(400, "Stripe payment is not completed yet.");
+  }
+
+  const sessionApplicationId = String(session?.metadata?.applicationId || "");
+  if (sessionApplicationId && sessionApplicationId !== String(application._id)) {
+    throw new ApiError(400, "Stripe session does not match this application.");
+  }
+
+  application.payment.status = "paid";
+  application.payment.method = "card";
+  application.payment.accountLast4 = "";
+  application.payment.transactionReference = String(session.id || "").trim();
+  application.payment.stripeSessionId = String(session.id || "").trim();
+  application.payment.stripePaymentIntentId = String(session.payment_intent || "").trim();
+  application.payment.paidAt = session.created
+    ? new Date(Number(session.created) * 1000)
+    : new Date();
+  application.status = "pending";
+
+  await application.save();
+
+  emitDataUpdate({
+    resource: "applications",
+    action: "updated",
+    userIds: [String(application.student), String(application.university)],
+    payload: {
+      applicationId: String(application._id),
+      universityId: String(application.university),
+      status: application.status,
+      paymentStatus: application.payment.status,
+    },
+  });
+
+  return application;
+};
 
 const readDownloadableFile = async (source) => {
   const value = String(source || "").trim();
@@ -480,9 +582,12 @@ const createApplication = asyncHandler(async (req, res) => {
   }
 
   const profile = await UniversityProfile.findOne({ university: university._id })
-    .select("acceptApplicationsThroughUaams applicationEndDate programs applicationFee")
+    .select(
+      "acceptApplicationsThroughUaams applicationEndDate programs applicationFee minimumFscPercentage minimumMatricPercentage",
+    )
     .lean();
-  ensureProgramAcceptingApplications({ profile, programName: program });
+  const studentProfile = await getStudentEligibilityProfile(req.user._id);
+  ensureProgramAcceptingApplications({ profile, programName: program, studentProfile });
   const applicationFee = Number(profile?.applicationFee || 0);
 
   const matricMarks = Number(formData["7"] || formData.matric || 0);
@@ -784,11 +889,13 @@ const payApplicationFee = asyncHandler(async (req, res) => {
     method,
     accountNumber = "",
     transactionReference,
+    stripeSessionId,
     paymentProof,
     paymentProofFileName,
   } = req.body;
+  const normalizedMethod = String(method || "bank").toLowerCase();
 
-  if (!isValidTransactionReference(transactionReference)) {
+  if (normalizedMethod !== "card" && !isValidTransactionReference(transactionReference)) {
     throw new ApiError(400, "Enter a valid transaction reference.");
   }
 
@@ -805,10 +912,34 @@ const payApplicationFee = asyncHandler(async (req, res) => {
     throw new ApiError(403, "You can only pay for your own applications.");
   }
 
-  const profile = await UniversityProfile.findOne({ university: application.university })
-    .select("acceptApplicationsThroughUaams applicationEndDate programs")
+  const universityId = resolveIdValue(application.university);
+  const profile = await UniversityProfile.findOne({ university: universityId })
+    .select("acceptApplicationsThroughUaams applicationEndDate programs minimumFscPercentage minimumMatricPercentage")
     .lean();
-  ensureProgramAcceptingApplications({ profile, programName: application.program });
+  const studentProfile = await getStudentEligibilityProfile(req.user._id);
+  ensureProgramAcceptingApplications({
+    profile,
+    programName: application.program,
+    studentProfile,
+  });
+
+  let verifiedStripeSession = null;
+  if (normalizedMethod === "card") {
+    const sessionId = String(stripeSessionId || transactionReference || "").trim();
+    if (!sessionId) {
+      throw new ApiError(400, "Stripe session id is required for card payments.");
+    }
+
+    const client = getStripeClient();
+    verifiedStripeSession = await client.checkout.sessions.retrieve(sessionId);
+    if (String(verifiedStripeSession?.payment_status || "") !== "paid") {
+      throw new ApiError(400, "Stripe payment is not completed yet.");
+    }
+
+    if (String(verifiedStripeSession?.metadata?.applicationId || "") !== String(application._id)) {
+      throw new ApiError(400, "Stripe session does not match this application.");
+    }
+  }
 
   const proofFileUrl = await persistMaybeDataUrl({
     value: paymentProof,
@@ -817,11 +948,17 @@ const payApplicationFee = asyncHandler(async (req, res) => {
   });
 
   application.payment.status = "paid";
-  application.payment.method = method || "bank";
+  application.payment.method = ["card", "bank", "wallet", "other"].includes(normalizedMethod)
+    ? normalizedMethod
+    : "bank";
   application.payment.accountLast4 = String(accountNumber).slice(-4);
-  application.payment.transactionReference = String(transactionReference).trim();
+  application.payment.transactionReference = String(
+    verifiedStripeSession?.id || transactionReference || "",
+  ).trim();
   application.payment.proofFileUrl = String(proofFileUrl || "").trim();
   application.payment.proofFileName = String(paymentProofFileName || extractFileNameFromUrl(proofFileUrl) || "").trim();
+  application.payment.stripeSessionId = String(verifiedStripeSession?.id || stripeSessionId || "").trim();
+  application.payment.stripePaymentIntentId = String(verifiedStripeSession?.payment_intent || "").trim();
   application.payment.paidAt = new Date();
   application.status = "pending";
 
@@ -844,6 +981,178 @@ const payApplicationFee = asyncHandler(async (req, res) => {
     message: "Payment recorded and application submitted successfully.",
     data: { application },
   });
+});
+
+const createStripeCheckoutSession = asyncHandler(async (req, res) => {
+  ensureObjectId(req.params.id, "Invalid application id.");
+
+  const application = await Application.findById(req.params.id)
+    .populate("university", "name")
+    .lean();
+  if (!application) {
+    throw new ApiError(404, "Application not found.");
+  }
+
+  if (String(application.student) !== String(req.user._id)) {
+    throw new ApiError(403, "You can only pay for your own applications.");
+  }
+
+  if (application.payment?.status === "paid") {
+    return res.status(200).json({
+      success: true,
+      message: "Application payment is already completed.",
+      data: { alreadyPaid: true, application },
+    });
+  }
+
+  if (application.status !== "not-submitted") {
+    throw new ApiError(400, "Only unpaid draft applications can be paid through Stripe.");
+  }
+
+  const universityId = resolveIdValue(application.university);
+  const profile = await UniversityProfile.findOne({ university: universityId })
+    .select(
+      "acceptApplicationsThroughUaams applicationEndDate programs logo universityName minimumFscPercentage minimumMatricPercentage",
+    )
+    .lean();
+  const studentProfile = await getStudentEligibilityProfile(req.user._id);
+  ensureProgramAcceptingApplications({
+    profile,
+    programName: application.program,
+    studentProfile,
+  });
+
+  const amount = Number(application.payment?.amount || 0);
+  if (!amount || amount <= 0) {
+    throw new ApiError(400, "Application fee is not configured for this program.");
+  }
+
+  const client = getStripeClient();
+  const frontendBaseUrl = resolveFrontendBaseUrl(req);
+  const applicationId = String(application._id);
+  const successUrl =
+    `${frontendBaseUrl}/student/payment-success/${applicationId}` +
+    "?session_id={CHECKOUT_SESSION_ID}";
+  const cancelUrl =
+    `${frontendBaseUrl}/student/payment/${applicationId}?stripe=cancelled`;
+  const universityName =
+    profile?.universityName || application?.university?.name || "University";
+
+  const session = await client.checkout.sessions.create({
+    payment_method_types: ["card"],
+    mode: "payment",
+    line_items: [
+      {
+        price_data: {
+          currency: env.stripeCurrency,
+          product_data: {
+            name: `${application.program} application fee`,
+            description: `${universityName} - ${application.applicationCode}`,
+          },
+          unit_amount: Math.round(amount * 100),
+        },
+        quantity: 1,
+      },
+    ],
+    metadata: {
+      applicationId,
+      applicationCode: String(application.applicationCode || ""),
+      studentId: String(application.student || ""),
+      universityId,
+      program: String(application.program || ""),
+    },
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+  });
+
+  await Application.findByIdAndUpdate(applicationId, {
+    $set: {
+      "payment.method": "card",
+      "payment.stripeSessionId": session.id,
+    },
+  });
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      checkoutUrl: session.url,
+      sessionId: session.id,
+      applicationId,
+      applicationCode: application.applicationCode,
+      amount,
+      currency: env.stripeCurrency,
+    },
+  });
+});
+
+const confirmStripeCheckoutSession = asyncHandler(async (req, res) => {
+  ensureObjectId(req.params.id, "Invalid application id.");
+
+  const sessionId = String(req.params.sessionId || "").trim();
+  if (!sessionId) {
+    throw new ApiError(400, "Stripe session id is required.");
+  }
+
+  const client = getStripeClient();
+  const session = await client.checkout.sessions.retrieve(sessionId);
+  const application = await Application.findById(req.params.id);
+
+  if (!application) {
+    throw new ApiError(404, "Application not found.");
+  }
+
+  if (String(application.student) !== String(req.user._id)) {
+    throw new ApiError(403, "You can only confirm payment for your own applications.");
+  }
+
+  if (String(session?.metadata?.applicationId || "") !== String(application._id)) {
+    throw new ApiError(400, "Stripe session does not match this application.");
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: "Stripe payment verified. Upload the successful payment screenshot to submit.",
+    data: {
+      application,
+      stripeSession: {
+        id: session.id,
+        paymentStatus: session.payment_status,
+        paymentIntentId: session.payment_intent || "",
+      },
+    },
+  });
+});
+
+const handleStripeWebhook = asyncHandler(async (req, res) => {
+  const client = getStripeClient();
+  const signature = req.headers["stripe-signature"];
+
+  if (!env.stripeWebhookSecret) {
+    throw new ApiError(503, "Stripe webhook secret is not configured.");
+  }
+
+  let event;
+  try {
+    event = client.webhooks.constructEvent(req.body, signature, env.stripeWebhookSecret);
+  } catch (error) {
+    return res.status(400).send(`Webhook error: ${error.message}`);
+  }
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    const applicationId = String(session?.metadata?.applicationId || "");
+    if (mongoose.isValidObjectId(applicationId)) {
+      await Application.findByIdAndUpdate(applicationId, {
+        $set: {
+          "payment.method": "card",
+          "payment.stripeSessionId": String(session.id || ""),
+          "payment.stripePaymentIntentId": String(session.payment_intent || ""),
+        },
+      });
+    }
+  }
+
+  return res.status(200).json({ received: true });
 });
 
 const updateMyDraftApplication = asyncHandler(async (req, res) => {
@@ -871,9 +1180,10 @@ const updateMyDraftApplication = asyncHandler(async (req, res) => {
   }
 
   const profile = await UniversityProfile.findOne({ university: application.university })
-    .select("acceptApplicationsThroughUaams applicationEndDate programs")
+    .select("acceptApplicationsThroughUaams applicationEndDate programs minimumFscPercentage minimumMatricPercentage")
     .lean();
-  ensureProgramAcceptingApplications({ profile, programName: program });
+  const studentProfile = await getStudentEligibilityProfile(req.user._id);
+  ensureProgramAcceptingApplications({ profile, programName: program, studentProfile });
 
   const matricMarks = Number(formData["7"] || formData.matric || 0);
   const interMarks = Number(formData["8"] || formData.fsc || 0);
@@ -1343,6 +1653,9 @@ module.exports = {
   getMyApplications,
   getApplicationById,
   payApplicationFee,
+  createStripeCheckoutSession,
+  confirmStripeCheckoutSession,
+  handleStripeWebhook,
   updateMyDraftApplication,
   deleteMyDraftApplication,
   deleteUniversityApplication,

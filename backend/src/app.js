@@ -6,6 +6,7 @@ const path = require("path");
 const env = require("./config/env");
 const routes = require("./routes");
 const { notFound, errorHandler } = require("./middleware/error.middleware");
+const { handleStripeWebhook } = require("./controllers/application.controller");
 
 const app = express();
 const configuredOrigins = String(env.corsOrigin || "")
@@ -39,6 +40,11 @@ if (env.compressionEnabled) {
     }),
   );
 }
+app.post(
+  "/api/applications/stripe/webhook",
+  express.raw({ type: "application/json" }),
+  handleStripeWebhook
+);
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan(env.nodeEnv === "production" ? "combined" : "dev"));

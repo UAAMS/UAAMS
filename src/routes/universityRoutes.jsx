@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import {Bell,BookOpen,CreditCard,FileEdit,Hash,Home,PenTool,ScrollText,Settings,Users,} from "lucide-react";
+import {Bell,BookOpen,FileEdit,Hash,Home,PenTool,ScrollText,Settings,Users,} from "lucide-react";
 
 const lazyNamed = (loader, exportName) =>
   lazy(() => loader().then((module) => ({ default: module[exportName] })));
@@ -26,10 +26,6 @@ const UniversitySettings = lazyNamed(
   () => import("../components/university/UniversitySettings"),
   "UniversitySettings",
 );
-const PaymentSettings = lazyNamed(
-  () => import("../components/university/PaymentSettings"),
-  "PaymentSettings",
-);
 const UniversityApplicationsPage = lazyNamed(
   () => import("../pages/university/UniversityApplicationsPage"),
   "UniversityApplicationsPage",
@@ -51,7 +47,6 @@ export const universityNavItems = [
   { to: "/university", label: "Overview", icon: Home, end: true },
   { to: "/university/applications", label: "Applications", icon: Users },
   { to: "/university/form-builder", label: "Form & Programs", icon: FileEdit },
-  { to: "/university/payments", label: "Payments", icon: CreditCard },
   { to: "/university/announcements", label: "Announcements", icon: Bell },
   { to: "/university/blog-manage", label: "Manage Blog", icon: BookOpen },
   { to: "/university/blog", label: "View Blog", icon: BookOpen },
@@ -67,7 +62,6 @@ export const universityRoutePages = [
   { path: "applications", element: <UniversityApplicationsPage /> },
   { path: "form-builder", element: <FormConfiguration /> },
   { path: "form-config", element: <FormConfiguration /> },
-  { path: "payments", element: <PaymentSettings /> },
   { path: "announcements", element: <UniversityAnnouncements /> },
   { path: "blog-manage", element: <UniversityBlog /> },
   { path: "blog", element: <UniversityBlogViewPage /> },

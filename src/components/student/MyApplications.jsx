@@ -386,12 +386,10 @@ function ApplicationCard({ application, onDeleteDraft }) {
             </button>
             <button
               type="button"
-              onClick={() =>
-                navigate(`/student/apply/${application.universityId}/payment/${application.id}`)
-              }
+              onClick={() => navigate(`/student/payment/${application.id}`)}
               className="rounded-lg bg-amber-500 px-4 py-2 text-white transition-colors hover:bg-amber-600"
             >
-              Resume Unpaid Draft
+              Continue to Payment
             </button>
           </>
         ) : null}

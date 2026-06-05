@@ -40,7 +40,7 @@ const {
   invalidateUniversityPublicCache,
 } = require("../../controllers/university.controller");
 
-const UNIVERSITY_RECOMMENDATION_DATASET_CACHE_KEY = "recommendations:universities:dataset:v2";
+const UNIVERSITY_RECOMMENDATION_DATASET_CACHE_KEY = "recommendations:universities:dataset:v3";
 
 const ensureObjectId = (id, message = "Invalid resource id.") => {
   if (!mongoose.isValidObjectId(id)) {
@@ -154,6 +154,8 @@ const sanitizeProfilePayload = (payload = {}) => {
     "representativeProfilePicture",
     "logo",
     "applicationFee",
+    "minimumFscPercentage",
+    "minimumMatricPercentage",
     "applicationStartDate",
     "applicationEndDate",
     "acceptApplicationsThroughUaams",
@@ -242,6 +244,20 @@ const validateSettingsPayload = (payload) => {
     !isNumberInRange(payload.totalPrograms, 0, 10000)
   ) {
     throw new ApiError(400, "Total programs must be a valid number.");
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "minimumFscPercentage") &&
+    !isNumberInRange(payload.minimumFscPercentage, 0, 100)
+  ) {
+    throw new ApiError(400, "Minimum FSC percentage must be between 0 and 100.");
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "minimumMatricPercentage") &&
+    !isNumberInRange(payload.minimumMatricPercentage, 0, 100)
+  ) {
+    throw new ApiError(400, "Minimum Matric percentage must be between 0 and 100.");
   }
 };
 
@@ -421,6 +437,8 @@ const updateMySettings = asyncHandler(async (req, res) => {
   const shouldBroadcastRecommendations = [
     "programs",
     "applicationFee",
+    "minimumFscPercentage",
+    "minimumMatricPercentage",
     "applicationStartDate",
     "applicationEndDate",
     "type",
@@ -437,6 +455,8 @@ const updateMySettings = asyncHandler(async (req, res) => {
         universityId: String(req.user._id),
         totalPrograms: Array.isArray(profile?.programs) ? profile.programs.length : 0,
         applicationFee: Number(profile?.applicationFee || 0),
+        minimumFscPercentage: Number(profile?.minimumFscPercentage || 0),
+        minimumMatricPercentage: Number(profile?.minimumMatricPercentage || 0),
         applicationEndDate: profile?.applicationEndDate || null,
       },
     });
@@ -492,7 +512,7 @@ const updateMyPrograms = asyncHandler(async (req, res) => {
         !program.feeRange,
     )
   ) {
-    throw new ApiError(400, "Every program must include seats, fee range, and aggregate values.");
+    throw new ApiError(400, "Every program must include seats and fee range.");
   }
 
   if (

@@ -201,6 +201,8 @@ const upsertStructuredUniversityByUserId = async (userId, { transaction } = {}) 
         seats: Number(program?.seats || 0),
         feeRange: asString(program?.feeRange),
         requiredAggregate: Number(program?.requiredAggregate || 0),
+        minimumFscPercentage: Number(program?.minimumFscPercentage || 0),
+        minimumMatricPercentage: Number(program?.minimumMatricPercentage || 0),
         deadlineDate: program?.deadlineDate || null,
         isAdmissionOpen: program?.isAdmissionOpen !== false,
       })),

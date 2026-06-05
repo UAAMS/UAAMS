@@ -16,8 +16,8 @@ const {
 } = require("../utils/validators");
 const { ROLES, UNIVERSITY_APPROVAL, USER_STATUS } = require("../constants/roles");
 
-const UNIVERSITY_RECOMMENDATION_DATASET_CACHE_KEY = "recommendations:universities:dataset:v2";
-const SNAPSHOT_CACHE_VERSION = 3;
+const UNIVERSITY_RECOMMENDATION_DATASET_CACHE_KEY = "recommendations:universities:dataset:v3";
+const SNAPSHOT_CACHE_VERSION = 4;
 
 const formatReadableDate = (value) => {
   if (!value) return "Not announced";
@@ -54,6 +54,8 @@ const areStringArraysEqual = (a = [], b = []) => {
 
 const buildProfileBasis = (studentProfile) => ({
   cacheVersion: SNAPSHOT_CACHE_VERSION,
+  matricPercentage: Number(studentProfile?.matricPercentage || 0),
+  interPercentage: Number(studentProfile?.interPercentage || 0),
   studentAggregate: Math.max(
     Number(studentProfile?.interPercentage || 0),
     Number(studentProfile?.matricPercentage || 0),
@@ -61,6 +63,49 @@ const buildProfileBasis = (studentProfile) => ({
   preferredPrograms: normalizeStringArray(studentProfile?.preferredPrograms),
   preferredCities: normalizeStringArray(studentProfile?.preferredCities),
 });
+
+const calculatePercentage = (obtainedMarks, totalMarks) => {
+  const obtained = Number(obtainedMarks || 0);
+  const total = Number(totalMarks || 0);
+  if (!obtained || !total || total <= 0) return 0;
+  return Number(((obtained / total) * 100).toFixed(2));
+};
+
+const resolveAcademicPercentage = (profile, percentageKey, obtainedKey, totalKey) => {
+  const storedPercentage = Number(profile?.[percentageKey] || 0);
+  if (storedPercentage > 0) return storedPercentage;
+  return calculatePercentage(profile?.[obtainedKey], profile?.[totalKey]);
+};
+
+const normalizeLookupText = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const findMatchingProgram = (programs = [], rawProgramName = "", rawProgramId = "") => {
+  const normalizedProgramId = String(rawProgramId || "").trim();
+  const normalizedProgramName = normalizeLookupText(rawProgramName);
+  if (!Array.isArray(programs) || programs.length === 0) return null;
+
+  if (normalizedProgramId) {
+    const byId = programs.find((program) => String(program?._id || "") === normalizedProgramId);
+    if (byId) return byId;
+  }
+
+  if (!normalizedProgramName) return null;
+
+  return (
+    programs.find((program) => normalizeLookupText(program?.name) === normalizedProgramName) ||
+    programs.find((program) => {
+      const programName = normalizeLookupText(program?.name);
+      return programName && (normalizedProgramName.includes(programName) || programName.includes(normalizedProgramName));
+    }) ||
+    null
+  );
+};
 
 const hasRecommendationSnapshotExpired = (snapshotGeneratedAt, ttlMs) => {
   if (!snapshotGeneratedAt) return true;
@@ -95,6 +140,8 @@ const canReuseSnapshotRecommendations = ({ snapshot, profileBasis, studentProfil
   const snapshotBasis = snapshot.profileBasis || {};
   return (
     Number(snapshotBasis.studentAggregate || 0) === Number(profileBasis.studentAggregate || 0) &&
+    Number(snapshotBasis.matricPercentage || 0) === Number(profileBasis.matricPercentage || 0) &&
+    Number(snapshotBasis.interPercentage || 0) === Number(profileBasis.interPercentage || 0) &&
     areStringArraysEqual(
       normalizeStringArray(snapshotBasis.preferredPrograms),
       profileBasis.preferredPrograms,
@@ -106,16 +153,13 @@ const canReuseSnapshotRecommendations = ({ snapshot, profileBasis, studentProfil
   );
 };
 
-const filterRecommendationsByRequest = ({ recommendations = [], minAggregate, maxFee, typeFilter }) =>
+const filterRecommendationsByRequest = ({ recommendations = [], maxFee, typeFilter }) =>
   recommendations
     .map((item) => {
       const allProgramRecommendations = Array.isArray(item?.programRecommendations)
         ? item.programRecommendations
         : [];
       const filteredPrograms = allProgramRecommendations
-        .filter((program) =>
-          minAggregate === null || Number(program?.requiredAggregate || 0) <= minAggregate,
-        )
         .sort((a, b) => Number(b?.matchScore || 0) - Number(a?.matchScore || 0));
 
       if (filteredPrograms.length === 0) {
@@ -177,7 +221,7 @@ const loadUniversityRecommendationDataset = async () => {
     university: { $in: universityIds },
   })
     .select(
-      "university universityName city type applicationFee applicationEndDate programs logo representativeName representativeProfilePicture"
+      "university universityName city type applicationFee minimumFscPercentage minimumMatricPercentage applicationEndDate programs logo representativeName representativeProfilePicture"
     )
     .lean();
 
@@ -191,6 +235,76 @@ const loadUniversityRecommendationDataset = async () => {
 
   await setCache(UNIVERSITY_RECOMMENDATION_DATASET_CACHE_KEY, dataset, env.apiCacheTtlMs);
   return dataset;
+};
+
+const enrichModelRecommendationsForApplication = async (recommendations = []) => {
+  if (!Array.isArray(recommendations) || recommendations.length === 0) return [];
+
+  const { universities, profileLookup } = await loadUniversityRecommendationDataset();
+  const profileEntries = Object.entries(profileLookup || {});
+  const universityNameLookup = new Map(
+    universities.map((university) => [String(university._id), university.name || ""]),
+  );
+
+  return recommendations.map((item) => {
+    const rawUniversityId = String(item?.university_id || "").trim();
+    const rawProgramId = String(item?.mongo_id || "").trim();
+    const rawProgramName = String(item?.program_name || item?.program || "").trim();
+    const rawCampus = normalizeLookupText(item?.campus);
+
+    let matchedUniversityId = "";
+    let matchedProfile = null;
+    let matchedProgram = null;
+
+    if (rawUniversityId && profileLookup[rawUniversityId]) {
+      matchedUniversityId = rawUniversityId;
+      matchedProfile = profileLookup[rawUniversityId];
+      matchedProgram = findMatchingProgram(matchedProfile?.programs, rawProgramName, rawProgramId);
+    }
+
+    if (!matchedProfile && rawProgramId) {
+      const entry = profileEntries.find(([, profile]) =>
+        findMatchingProgram(profile?.programs, rawProgramName, rawProgramId),
+      );
+      if (entry) {
+        [matchedUniversityId, matchedProfile] = entry;
+        matchedProgram = findMatchingProgram(matchedProfile?.programs, rawProgramName, rawProgramId);
+      }
+    }
+
+    if (!matchedProfile && (rawProgramName || rawCampus)) {
+      const entry = profileEntries.find(([, profile]) => {
+        const profileName = normalizeLookupText(profile?.universityName);
+        const userName = normalizeLookupText(universityNameLookup.get(String(profile?.university)));
+        const campusMatches =
+          rawCampus &&
+          ((profileName && (profileName.includes(rawCampus) || rawCampus.includes(profileName))) ||
+            (userName && (userName.includes(rawCampus) || rawCampus.includes(userName))));
+        return campusMatches || findMatchingProgram(profile?.programs, rawProgramName, rawProgramId);
+      });
+      if (entry) {
+        [matchedUniversityId, matchedProfile] = entry;
+        matchedProgram = findMatchingProgram(matchedProfile?.programs, rawProgramName, rawProgramId);
+      }
+    }
+
+    if (!matchedProfile || !matchedProgram) {
+      return {
+        ...item,
+        university_id: matchedUniversityId || rawUniversityId,
+        apply_program_name: rawProgramName,
+        can_apply: Boolean(matchedUniversityId || rawUniversityId) && Boolean(rawProgramName),
+      };
+    }
+
+    return {
+      ...item,
+      university_id: matchedUniversityId,
+      university_name: matchedProfile?.universityName || universityNameLookup.get(matchedUniversityId) || "",
+      apply_program_name: matchedProgram.name,
+      can_apply: matchedProgram.isAdmissionOpen !== false && !hasDeadlinePassed(matchedProgram.deadlineDate),
+    };
+  });
 };
 
 const getMyProfile = asyncHandler(async (req, res) => {
@@ -306,7 +420,6 @@ const updateMyProfile = asyncHandler(async (req, res) => {
 });
 
 const getRecommendations = asyncHandler(async (req, res) => {
-  const minAggregate = req.query.minAggregate ? Number(req.query.minAggregate) : null;
   const maxFee = Number(req.query.maxFee || Number.MAX_SAFE_INTEGER);
   const typeFilter = (req.query.type || "all").toLowerCase();
   const studentProfile = await StudentProfile.findOne({ user: req.user._id })
@@ -327,7 +440,6 @@ const getRecommendations = asyncHandler(async (req, res) => {
   ) {
     const recommendations = filterRecommendationsByRequest({
       recommendations: snapshot.recommendations || [],
-      minAggregate,
       maxFee,
       typeFilter,
     });
@@ -360,6 +472,8 @@ const getRecommendations = asyncHandler(async (req, res) => {
           ? programsFromProfile.map((item) => ({
               name: String(item?.name || "").trim(),
               requiredAggregate: Number(item?.requiredAggregate || 0),
+              minimumFscPercentage: Number(profile?.minimumFscPercentage || 0),
+              minimumMatricPercentage: Number(profile?.minimumMatricPercentage || 0),
               feeRange: String(item?.feeRange || "").trim(),
               seats: Number(item?.seats || 0),
               deadlineDate: item?.deadlineDate || null,
@@ -368,6 +482,8 @@ const getRecommendations = asyncHandler(async (req, res) => {
           : parsedProgramsFromRegistration.map((name) => ({
               name,
               requiredAggregate: 0,
+              minimumFscPercentage: Number(profile?.minimumFscPercentage || 0),
+              minimumMatricPercentage: Number(profile?.minimumMatricPercentage || 0),
               feeRange: "Contact university",
               seats: 0,
               deadlineDate: null,
@@ -405,6 +521,8 @@ const getRecommendations = asyncHandler(async (req, res) => {
           return {
             name: program.name,
             requiredAggregate: Number(program.requiredAggregate || 0),
+            minimumFscPercentage: Number(program.minimumFscPercentage || 0),
+            minimumMatricPercentage: Number(program.minimumMatricPercentage || 0),
             seats: Number(program.seats || 0),
             feeRange: program.feeRange || "Contact university",
             matchScore: Math.max(0, Math.min(100, Math.round(matchScore))),
@@ -449,6 +567,8 @@ const getRecommendations = asyncHandler(async (req, res) => {
         matchScore,
         type: profile?.type || "public",
         applicationFee: Number(profile?.applicationFee || 0),
+        minimumFscPercentage: Number(profile?.minimumFscPercentage || 0),
+        minimumMatricPercentage: Number(profile?.minimumMatricPercentage || 0),
         logo: profile?.logo || "",
         representativeName: profile?.representativeName || "",
         representativeProfilePicture: profile?.representativeProfilePicture || "",
@@ -458,7 +578,6 @@ const getRecommendations = asyncHandler(async (req, res) => {
 
   const recommendations = filterRecommendationsByRequest({
     recommendations: allRecommendations,
-    minAggregate,
     maxFee,
     typeFilter,
   });
@@ -487,6 +606,89 @@ const getRecommendations = asyncHandler(async (req, res) => {
   });
 });
 
+const getModelRecommendations = asyncHandler(async (req, res) => {
+  const studentProfile = await StudentProfile.findOne({ user: req.user._id })
+    .select(
+      "matricPercentage matricObtainedMarks matricTotalMarks interPercentage interObtainedMarks interTotalMarks updatedAt"
+    )
+    .lean();
+
+  const matric = resolveAcademicPercentage(
+    studentProfile,
+    "matricPercentage",
+    "matricObtainedMarks",
+    "matricTotalMarks",
+  );
+  const fsc = resolveAcademicPercentage(
+    studentProfile,
+    "interPercentage",
+    "interObtainedMarks",
+    "interTotalMarks",
+  );
+
+  if (!matric || !fsc) {
+    return res.status(200).json({
+      success: true,
+      data: {
+        recommendations: [],
+        userInput: { matric, fsc },
+        summary: null,
+        message: "Add matric and intermediate marks in your profile to see model recommendations.",
+      },
+    });
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), env.recommendationModelTimeoutMs);
+
+  try {
+    const modelResponse = await fetch(
+      `${String(env.recommendationModelUrl).replace(/\/$/, "")}/recommend`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matric, fsc, k: 4 }),
+        signal: controller.signal,
+      },
+    );
+
+    const payload = await modelResponse.json().catch(() => ({}));
+    if (!modelResponse.ok) {
+      throw new ApiError(
+        modelResponse.status,
+        payload?.error || "Unable to load model recommendations.",
+      );
+    }
+
+    const recommendations = await enrichModelRecommendationsForApplication(
+      Array.isArray(payload?.recommendations) ? payload.recommendations : [],
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        recommendations,
+        userInput: payload?.user_input || { matric, fsc },
+        estimationFormula: payload?.estimation_formula || "",
+        summary: payload?.summary || null,
+        modelStatus: payload?.status || "success",
+      },
+    });
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+
+    const message =
+      error?.name === "AbortError"
+        ? "Recommendation model request timed out."
+        : "Recommendation model service is not available. Start the Flask model server on port 4000.";
+    throw new ApiError(503, message);
+  } finally {
+    clearTimeout(timeout);
+  }
+});
+
 const ensureStudentRole = asyncHandler(async (req, _res, next) => {
   if (req.user.role !== ROLES.STUDENT) {
     throw new ApiError(403, "Only students can access this endpoint.");
@@ -499,4 +701,5 @@ module.exports = {
   getMyProfile,
   updateMyProfile,
   getRecommendations,
+  getModelRecommendations,
 };

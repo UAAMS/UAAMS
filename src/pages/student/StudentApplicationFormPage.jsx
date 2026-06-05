@@ -741,7 +741,7 @@ export const StudentApplicationFormPage = () => {
     event.preventDefault();
     const applicationId = await saveDraft();
     if (applicationId) {
-      navigate(`/student/apply/${universityId}/payment/${applicationId}`);
+      navigate(`/student/payment/${applicationId}`);
     }
   };
 
