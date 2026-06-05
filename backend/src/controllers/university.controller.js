@@ -256,7 +256,9 @@ const listUniversities = asyncHandler(async (req, res) => {
   const profiles = await UniversityProfile.find({
     university: { $in: universityIds },
   })
-    .select("university universityName type city email website applicationFee programs logo")
+    .select(
+      "university universityName type city email website applicationFee minimumFscPercentage minimumMatricPercentage programs logo",
+    )
     .lean();
   const profileMap = new Map(profiles.map((item) => [String(item.university), item]));
 
@@ -272,6 +274,8 @@ const listUniversities = asyncHandler(async (req, res) => {
         website: profile?.website || uni.website || "",
         logo: profile?.logo || "",
         applicationFee: Number(profile?.applicationFee || 0),
+        minimumFscPercentage: Number(profile?.minimumFscPercentage || 0),
+        minimumMatricPercentage: Number(profile?.minimumMatricPercentage || 0),
         programs: Array.isArray(profile?.programs)
           ? profile.programs.map((program) => ({
               id: program._id,
@@ -279,6 +283,8 @@ const listUniversities = asyncHandler(async (req, res) => {
               seats: program.seats,
               feeRange: program.feeRange,
               requiredAggregate: program.requiredAggregate,
+              minimumFscPercentage: Number(profile?.minimumFscPercentage || 0),
+              minimumMatricPercentage: Number(profile?.minimumMatricPercentage || 0),
               deadlineDate: program.deadlineDate || null,
               isAdmissionOpen:
                 program.isAdmissionOpen !== false && !hasDeadlinePassed(program.deadlineDate),
@@ -337,6 +343,8 @@ const getUniversityById = asyncHandler(async (req, res) => {
         "city",
         "website",
         "applicationFee",
+        "minimumFscPercentage",
+        "minimumMatricPercentage",
         "applicationStartDate",
         "applicationEndDate",
         "logo",
@@ -365,6 +373,8 @@ const getUniversityById = asyncHandler(async (req, res) => {
         phone: profile?.phone || "",
         address: profile?.address || "",
         applicationFee: Number(profile?.applicationFee || 0),
+        minimumFscPercentage: Number(profile?.minimumFscPercentage || 0),
+        minimumMatricPercentage: Number(profile?.minimumMatricPercentage || 0),
         applicationStartDate: profile?.applicationStartDate || null,
         applicationEndDate: profile?.applicationEndDate || null,
         programs: Array.isArray(profile?.programs)

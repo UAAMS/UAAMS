@@ -4,6 +4,8 @@ const {
   getMyApplications,
   getApplicationById,
   payApplicationFee,
+  createStripeCheckoutSession,
+  confirmStripeCheckoutSession,
   updateMyDraftApplication,
   deleteMyDraftApplication,
   deleteUniversityApplication,
@@ -26,6 +28,12 @@ router.get("/me", authorize(ROLES.STUDENT), getMyApplications);
 router.patch("/:id", authorize(ROLES.STUDENT), updateMyDraftApplication);
 router.delete("/:id", authorize(ROLES.STUDENT), deleteMyDraftApplication);
 router.patch("/:id/payment", authorize(ROLES.STUDENT), payApplicationFee);
+router.post("/:id/stripe-checkout-session", authorize(ROLES.STUDENT), createStripeCheckoutSession);
+router.get(
+  "/:id/stripe-checkout-session/:sessionId",
+  authorize(ROLES.STUDENT),
+  confirmStripeCheckoutSession
+);
 
 router.get(
   "/university/me",

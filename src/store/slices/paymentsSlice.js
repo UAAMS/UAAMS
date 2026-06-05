@@ -25,6 +25,32 @@ export const submitApplicationPayment = createAsyncThunk(
   },
 );
 
+export const createStripeCheckoutSession = createAsyncThunk(
+  "payments/createStripeCheckoutSession",
+  async (applicationId, { rejectWithValue }) => {
+    try {
+      const response = await api.post(`/applications/${applicationId}/stripe-checkout-session`);
+      return response?.data || {};
+    } catch (error) {
+      return rejectWithValue(error?.message || "Unable to start Stripe checkout.");
+    }
+  },
+);
+
+export const confirmStripeCheckoutSession = createAsyncThunk(
+  "payments/confirmStripeCheckoutSession",
+  async ({ applicationId, sessionId }, { rejectWithValue }) => {
+    try {
+      const response = await api.get(
+        `/applications/${applicationId}/stripe-checkout-session/${encodeURIComponent(sessionId)}`,
+      );
+      return response?.data || {};
+    } catch (error) {
+      return rejectWithValue(error?.message || "Unable to confirm Stripe payment.");
+    }
+  },
+);
+
 const paymentsSlice = createSlice({
   name: "payments",
   initialState: {
@@ -33,6 +59,10 @@ const paymentsSlice = createSlice({
     error: "",
     processing: false,
     processingError: "",
+    checkoutSession: null,
+    checkoutError: "",
+    confirming: false,
+    confirmError: "",
   },
   reducers: {
     clearPaymentErrors(state) {
@@ -45,6 +75,10 @@ const paymentsSlice = createSlice({
       state.error = "";
       state.processing = false;
       state.processingError = "";
+      state.checkoutSession = null;
+      state.checkoutError = "";
+      state.confirming = false;
+      state.confirmError = "";
     },
   },
   extraReducers: (builder) => {
@@ -72,6 +106,30 @@ const paymentsSlice = createSlice({
       .addCase(submitApplicationPayment.rejected, (state, action) => {
         state.processing = false;
         state.processingError = action.payload || "Unable to process payment.";
+      })
+      .addCase(createStripeCheckoutSession.pending, (state) => {
+        state.processing = true;
+        state.checkoutError = "";
+      })
+      .addCase(createStripeCheckoutSession.fulfilled, (state, action) => {
+        state.processing = false;
+        state.checkoutSession = action.payload;
+      })
+      .addCase(createStripeCheckoutSession.rejected, (state, action) => {
+        state.processing = false;
+        state.checkoutError = action.payload || "Unable to start Stripe checkout.";
+      })
+      .addCase(confirmStripeCheckoutSession.pending, (state) => {
+        state.confirming = true;
+        state.confirmError = "";
+      })
+      .addCase(confirmStripeCheckoutSession.fulfilled, (state, action) => {
+        state.confirming = false;
+        state.currentApplication = action.payload?.application || state.currentApplication;
+      })
+      .addCase(confirmStripeCheckoutSession.rejected, (state, action) => {
+        state.confirming = false;
+        state.confirmError = action.payload || "Unable to confirm Stripe payment.";
       });
   },
 });

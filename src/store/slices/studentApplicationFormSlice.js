@@ -8,6 +8,12 @@ const normalizeUniversity = (university = {}) => {
     .map((program) => ({
       name: String(program?.name || "").trim(),
       requiredAggregate: Number(program?.requiredAggregate || 0),
+      minimumFscPercentage: Number(
+        university?.minimumFscPercentage || program?.minimumFscPercentage || 0,
+      ),
+      minimumMatricPercentage: Number(
+        university?.minimumMatricPercentage || program?.minimumMatricPercentage || 0,
+      ),
       seats: Number(program?.seats || 0),
       feeRange: String(program?.feeRange || "").trim(),
       deadlineDate: program?.deadlineDate || null,
@@ -42,6 +48,8 @@ const normalizeUniversity = (university = {}) => {
       : "Not announced",
     type: String(university?.type || "public"),
     applicationFee: Number(university?.applicationFee || 0),
+    minimumFscPercentage: Number(university?.minimumFscPercentage || 0),
+    minimumMatricPercentage: Number(university?.minimumMatricPercentage || 0),
   };
 };
 

@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, CreditCard, School, Upload } from "lucide-react";
-import { ConfirmDialog } from "../../components/shared/ConfirmDialog";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ArrowLeft, CheckCircle2, CreditCard, LockKeyhole, School, Upload, XCircle } from "lucide-react";
 import { DashboardPageShell } from "../shared/DashboardPageShell";
 import { readFileAsDataUrl } from "../../lib/fileDataUrl";
-import { isSupportedDocumentFile, isValidTransactionReference } from "../../lib/validation";
+import { isSupportedDocumentFile } from "../../lib/validation";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { fetchStudentApplications } from "../../store/slices/applicationsSlice";
 import {
+  confirmStripeCheckoutSession,
+  createStripeCheckoutSession,
   fetchPaymentApplication,
   resetPaymentState,
   submitApplicationPayment,
@@ -31,24 +32,20 @@ export const StudentApplicationPaymentPage = () => {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const { universityId, applicationId } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const {
     currentApplication: application,
     loading: isLoading,
     error: loadError,
     processing: isProcessing,
-    processingError,
+    checkoutError,
+    confirming: isConfirming,
+    confirmError,
   } = useAppSelector((state) => state.payments);
-
-  const [paymentData, setPaymentData] = useState({
-    method: "bank",
-    accountNumber: "",
-    transactionReference: "",
-    paymentProof: "",
-    paymentProofFileName: "",
-  });
-  const [errors, setErrors] = useState({});
-  const [apiError, setApiError] = useState("");
-  const [isConfirmOpen, setConfirmOpen] = useState(false);
+  const [localError, setLocalError] = useState("");
+  const [verifiedStripeSession, setVerifiedStripeSession] = useState(null);
+  const [paymentProof, setPaymentProof] = useState("");
+  const [paymentProofFileName, setPaymentProofFileName] = useState("");
 
   useEffect(() => {
     dispatch(fetchPaymentApplication(applicationId));
@@ -57,42 +54,42 @@ export const StudentApplicationPaymentPage = () => {
     };
   }, [dispatch, applicationId]);
 
+  const stripeStatus = searchParams.get("stripe") || "";
+  const stripeSessionId = searchParams.get("session_id") || "";
+
   useEffect(() => {
-    if (processingError) {
-      setApiError(processingError);
-    }
-  }, [processingError]);
+    if (stripeStatus !== "success" || !stripeSessionId || !applicationId) return;
+    if (verifiedStripeSession?.id === stripeSessionId) return;
+
+    dispatch(confirmStripeCheckoutSession({ applicationId, sessionId: stripeSessionId }))
+      .unwrap()
+      .then((payload) => {
+        if (payload?.stripeSession?.paymentStatus === "paid") {
+          setVerifiedStripeSession(payload.stripeSession);
+        }
+      })
+      .catch((error) => {
+        setLocalError(typeof error === "string" ? error : error?.message || "Unable to verify Stripe payment.");
+      });
+  }, [applicationId, dispatch, stripeSessionId, stripeStatus, verifiedStripeSession?.id]);
 
   const isAlreadyPaid = useMemo(
     () => application?.payment?.status === "paid",
     [application?.payment?.status],
   );
 
-  const paymentMethods = useMemo(
-    () =>
-      Array.isArray(application?.paymentMethods)
-        ? application.paymentMethods.filter((method) => method?.isActive !== false)
-        : [],
-    [application?.paymentMethods],
-  );
-
-  useEffect(() => {
-    if (paymentMethods.length === 0) return;
-    setPaymentData((previous) => ({
-      ...previous,
-      method: previous.method || paymentMethods[0].type || "bank",
-    }));
-  }, [paymentMethods]);
-
   const applicationUniversityId = useMemo(
     () => application?.university?._id || application?.university?.id || application?.university,
     [application],
   );
 
+  const effectiveUniversityId = String(universityId || applicationUniversityId || "");
+
   const hasUniversityMismatch = useMemo(
     () =>
       Boolean(
         application &&
+          universityId &&
           applicationUniversityId &&
           String(applicationUniversityId) !== String(universityId),
       ),
@@ -103,70 +100,62 @@ export const StudentApplicationPaymentPage = () => {
     ? "Application does not match selected university."
     : loadError;
 
-  const handleChange = (field, value) => {
-    setPaymentData((previous) => ({ ...previous, [field]: value }));
-    if (errors[field]) {
-      setErrors((previous) => ({ ...previous, [field]: "" }));
-    }
-    if (apiError) {
-      setApiError("");
-    }
-  };
+  const amountDue = Number(application?.payment?.amount || 0);
+  const applicationDisplayId = application?.applicationCode || application?._id || applicationId;
 
-  const handleProofChange = async (file) => {
-    if (!file) return;
-    if (!isSupportedDocumentFile(file)) {
-      setErrors((previous) => ({
-        ...previous,
-        paymentProof: "Payment proof must be a PDF, JPG, or PNG file.",
-      }));
+  const startStripeCheckout = async () => {
+    setLocalError("");
+    if (!application?._id) {
+      setLocalError("Application draft not found.");
       return;
     }
 
     try {
-      const dataUrl = await readFileAsDataUrl(file);
-      handleChange("paymentProof", dataUrl);
-      handleChange("paymentProofFileName", file.name);
-    } catch (fileError) {
-      setApiError(fileError?.message || "Unable to read payment screenshot.");
+      const checkout = await dispatch(createStripeCheckoutSession(application._id)).unwrap();
+      if (checkout?.alreadyPaid) {
+        dispatch(fetchStudentApplications());
+        navigate("/student/applications", { state: { applicationId: application._id } });
+        return;
+      }
+
+      if (!checkout?.checkoutUrl) {
+        setLocalError("Stripe checkout URL was not returned.");
+        return;
+      }
+
+      window.location.assign(checkout.checkoutUrl);
+    } catch (error) {
+      setLocalError(typeof error === "string" ? error : error?.message || "Unable to start Stripe checkout.");
     }
   };
 
-  const handlePayAndSubmit = async (event) => {
-    event.preventDefault();
-    setApiError("");
+  const handleProofChange = async (file) => {
+    setLocalError("");
+    if (!file) return;
 
-    const nextErrors = {};
-
-    if (!isValidTransactionReference(paymentData.transactionReference)) {
-      nextErrors.transactionReference =
-        "Enter a valid transaction reference (6-64 letters, numbers, dots, dashes, slashes, or underscores).";
-    }
-
-    if (
-      paymentData.accountNumber.trim() &&
-      !/^[A-Za-z0-9 +._/-]{4,40}$/.test(paymentData.accountNumber.trim())
-    ) {
-      nextErrors.accountNumber = "Enter a valid sender account or wallet number.";
-    }
-
-    if (!paymentData.paymentProof.trim()) {
-      nextErrors.paymentProof = "Payment screenshot is required.";
-    }
-
-    if (Object.keys(nextErrors).length > 0) {
-      setErrors(nextErrors);
+    if (!isSupportedDocumentFile(file)) {
+      setLocalError("Payment screenshot must be a PDF, JPG, or PNG file.");
       return;
     }
 
-    setConfirmOpen(true);
+    try {
+      setPaymentProof(await readFileAsDataUrl(file));
+      setPaymentProofFileName(file.name);
+    } catch (error) {
+      setLocalError(error?.message || "Unable to read payment screenshot.");
+    }
   };
 
-  const submitConfirmedPayment = async () => {
-    setConfirmOpen(false);
+  const submitSuccessfulPaymentProof = async () => {
+    setLocalError("");
 
-    if (!application?._id) {
-      setApiError("Application draft not found.");
+    if (!verifiedStripeSession?.id && !stripeSessionId) {
+      setLocalError("Stripe payment must be completed before uploading proof.");
+      return;
+    }
+
+    if (!paymentProof) {
+      setLocalError("Upload a screenshot of the successful Stripe payment.");
       return;
     }
 
@@ -175,18 +164,19 @@ export const StudentApplicationPaymentPage = () => {
         submitApplicationPayment({
           applicationId: application._id,
           payload: {
-            method: paymentData.method,
-            accountNumber: paymentData.accountNumber,
-            transactionReference: paymentData.transactionReference,
-            paymentProof: paymentData.paymentProof,
-            paymentProofFileName: paymentData.paymentProofFileName,
+            method: "card",
+            stripeSessionId: verifiedStripeSession?.id || stripeSessionId,
+            transactionReference: verifiedStripeSession?.id || stripeSessionId,
+            paymentProof,
+            paymentProofFileName,
           },
         }),
       ).unwrap();
       dispatch(fetchStudentApplications());
-      navigate("/student/applications");
+      setSearchParams({}, { replace: true });
+      navigate("/student/applications", { state: { applicationId: application._id } });
     } catch (error) {
-      setApiError(error?.message || "Unable to submit application payment.");
+      setLocalError(typeof error === "string" ? error : error?.message || "Unable to submit payment screenshot.");
     }
   };
 
@@ -229,7 +219,7 @@ export const StudentApplicationPaymentPage = () => {
         <button
           onClick={() =>
             navigate(
-              `/student/apply/${universityId}?program=${encodeURIComponent(
+              `/student/apply/${effectiveUniversityId}?program=${encodeURIComponent(
                 application.program || "",
               )}&draft=${encodeURIComponent(application._id || applicationId)}`,
             )
@@ -242,150 +232,136 @@ export const StudentApplicationPaymentPage = () => {
       }
     >
       <UniversityPaymentHeader application={application} />
-      <form
-        onSubmit={handlePayAndSubmit}
-        className="space-y-5 rounded-xl border border-slate-200 bg-white p-4 sm:p-6"
-      >
-        <div className="rounded-lg bg-emerald-50 px-4 py-4 text-base text-emerald-800">
-          <p className="font-semibold">Application Fee</p>
-          <p className="mt-1 text-2xl font-semibold sm:text-3xl">
-            PKR {Number(application?.payment?.amount || 0).toLocaleString()}
-          </p>
+
+      <section className="space-y-5 rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
+        <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="rounded-lg bg-emerald-50 px-4 py-4 text-emerald-800">
+            <p className="text-sm font-semibold">Amount Due</p>
+            <p className="mt-1 text-2xl font-semibold sm:text-3xl">
+              PKR {amountDue.toLocaleString()}
+            </p>
+            <p className="mt-2 text-sm text-emerald-700">
+              Application fee for {application.program || "selected program"}.
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
+            <p className="text-xs font-medium uppercase text-slate-500">Application ID</p>
+            <p className="mt-1 break-all text-base font-semibold text-slate-900">
+              {applicationDisplayId}
+            </p>
+            <p className="mt-2 text-xs text-slate-600">
+              Stripe payment will be recorded against this same application.
+            </p>
+          </div>
         </div>
 
+        {stripeStatus === "cancelled" ? (
+          <StatusBanner
+            tone="warning"
+            icon={<XCircle className="h-4 w-4" />}
+            text="Stripe checkout was cancelled. You can start payment again when ready."
+          />
+        ) : null}
+
+        {isConfirming ? (
+          <StatusBanner
+            tone="info"
+            icon={<CreditCard className="h-4 w-4" />}
+            text="Verifying your Stripe payment..."
+          />
+        ) : null}
+
+        {verifiedStripeSession?.id && !isAlreadyPaid ? (
+          <StatusBanner
+            tone="success"
+            icon={<CheckCircle2 className="h-4 w-4" />}
+            text="Stripe payment verified. Upload the successful payment screenshot to submit your application."
+          />
+        ) : null}
+
         {isAlreadyPaid ? (
-          <p className="rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-700">
-            Payment is already completed for this application.
+          <StatusBanner
+            tone="success"
+            icon={<CheckCircle2 className="h-4 w-4" />}
+            text="Payment is completed. Your application has been submitted to the university."
+          />
+        ) : null}
+
+        {localError || checkoutError || confirmError ? (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {localError || checkoutError || confirmError}
           </p>
         ) : null}
 
-        <section className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <h3 className="mb-3 text-sm text-slate-900">University Payment Details</h3>
-          {paymentMethods.length > 0 ? (
-            <div className="space-y-3">
-              {paymentMethods.map((method, index) => (
-                <PaymentMethodCard key={method.id || index} method={method} />
-              ))}
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
+          <div className="flex items-start gap-3">
+            <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Secure Stripe Checkout</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                You will be redirected to Stripe to enter card details. After payment, return here
+                and upload the successful payment screenshot before UAAMS submits your application.
+              </p>
             </div>
-          ) : (
-            <p className="text-sm text-slate-600">
-              The university has not added payment instructions yet. Contact the admission office
-              before submitting proof.
-            </p>
-          )}
-        </section>
-
-        <div>
-          <label className="mb-2 block text-sm text-slate-700">Payment Method</label>
-          <select
-            value={paymentData.method}
-            onChange={(event) => handleChange("method", event.target.value)}
-            disabled={isAlreadyPaid}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-slate-100"
-          >
-            <option value="bank">Bank Transfer</option>
-            <option value="wallet">Mobile Wallet</option>
-            <option value="card">Debit / Credit Card</option>
-            <option value="other">Other</option>
-          </select>
+          </div>
         </div>
 
-        <div>
-          <label className="mb-2 block text-sm text-slate-700">Your Account / Sender Number</label>
-          <input
-            type="text"
-            value={paymentData.accountNumber}
-            onChange={(event) => handleChange("accountNumber", event.target.value)}
-            placeholder="Optional sender account, card, or wallet number"
-            disabled={isAlreadyPaid}
-            className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-slate-100 ${
-              errors.accountNumber ? "border-red-500" : "border-slate-300"
-            }`}
-          />
-          {errors.accountNumber ? (
-            <p className="mt-1 text-xs text-red-600">{errors.accountNumber}</p>
-          ) : null}
-        </div>
-
-        <div>
-          <label className="mb-2 block text-sm text-slate-700">Transaction Reference</label>
-          <input
-            type="text"
-            value={paymentData.transactionReference}
-            onChange={(event) => handleChange("transactionReference", event.target.value)}
-            placeholder="e.g. TXN-4582231"
-            disabled={isAlreadyPaid}
-            className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-slate-100 ${
-              errors.transactionReference ? "border-red-500" : "border-slate-300"
-            }`}
-          />
-          {errors.transactionReference ? (
-            <p className="mt-1 text-xs text-red-600">{errors.transactionReference}</p>
-          ) : null}
-        </div>
-
-        <div>
-          <label className="mb-2 block text-sm text-slate-700">Payment Screenshot</label>
-          <div
-            className={`rounded-lg border bg-white px-3 py-3 text-sm ${
-              errors.paymentProof ? "border-red-500" : "border-slate-300"
-            }`}
-          >
-            {paymentData.paymentProofFileName ? (
-              <div className="mb-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                Attached: {paymentData.paymentProofFileName}
+        {verifiedStripeSession?.id && !isAlreadyPaid ? (
+          <div className="rounded-lg border border-slate-200 bg-white px-4 py-4">
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              Successful Payment Screenshot
+            </label>
+            {paymentProofFileName ? (
+              <div className="mb-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                Attached: {paymentProofFileName}
               </div>
             ) : null}
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-slate-700 hover:bg-slate-50">
-              <Upload className="h-5 w-5 shrink-0" />
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+              <Upload className="h-4 w-4" />
               Upload Screenshot
               <input
                 type="file"
                 accept=".pdf,.jpg,.jpeg,.png"
-                disabled={isAlreadyPaid}
                 onChange={(event) => handleProofChange(event.target.files?.[0])}
                 className="hidden"
               />
             </label>
-            <p className="mt-2 text-xs text-slate-500">Upload a PDF, JPG, or PNG receipt.</p>
+            <p className="mt-2 text-xs text-slate-500">
+              Upload the Stripe success receipt or confirmation screen as PDF, JPG, or PNG.
+            </p>
           </div>
-          {errors.paymentProof ? (
-            <p className="mt-1 text-xs text-red-600">{errors.paymentProof}</p>
-          ) : null}
-        </div>
-
-        {apiError ? (
-          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{apiError}</p>
         ) : null}
 
-        <div className="rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-700">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-            Your draft will be marked submitted after successful payment.
-          </div>
-        </div>
-
-        <div className="flex justify-end border-t border-slate-200 pt-4">
+        <div className="flex flex-col gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-slate-600">
+            Application status updates after Stripe payment verification and screenshot upload.
+          </p>
           <button
-            type="submit"
-            disabled={isProcessing || isAlreadyPaid}
-            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
+            type="button"
+            onClick={
+              isAlreadyPaid
+                ? () => navigate("/student/applications")
+                : verifiedStripeSession?.id
+                  ? submitSuccessfulPaymentProof
+                  : startStripeCheckout
+            }
+            disabled={isProcessing || isConfirming}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
           >
             <CreditCard className="h-4 w-4" />
-            {isAlreadyPaid ? "Already Paid" : isProcessing ? "Processing..." : "Pay & Submit Application"}
+            {isAlreadyPaid
+              ? "View Applications"
+              : isProcessing
+                ? verifiedStripeSession?.id
+                  ? "Submitting..."
+                  : "Starting Stripe..."
+                : verifiedStripeSession?.id
+                  ? "Submit Payment Screenshot"
+                  : "Pay with Stripe"}
           </button>
         </div>
-      </form>
-      <ConfirmDialog
-        open={isConfirmOpen}
-        title="Submit payment?"
-        description="This will submit your payment proof and move the application from draft to submitted."
-        confirmLabel="Submit Payment"
-        tone="success"
-        isLoading={isProcessing}
-        onConfirm={submitConfirmedPayment}
-        onCancel={() => setConfirmOpen(false)}
-      />
+      </section>
     </DashboardPageShell>
   );
 };
@@ -415,34 +391,18 @@ function UniversityPaymentHeader({ application }) {
   );
 }
 
-function PaymentMethodCard({ method }) {
-  const details = [
-    method.accountTitle ? `Account Title: ${method.accountTitle}` : "",
-    method.bankName ? `Bank: ${method.bankName}` : "",
-    method.accountNumber ? `Account: ${method.accountNumber}` : "",
-    method.iban ? `IBAN: ${method.iban}` : "",
-    method.walletName ? `Wallet: ${method.walletName}` : "",
-    method.walletNumber ? `Wallet Number: ${method.walletNumber}` : "",
-  ].filter(Boolean);
+function StatusBanner({ tone, icon, text }) {
+  const classes =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : tone === "warning"
+        ? "border-amber-200 bg-amber-50 text-amber-800"
+        : "border-blue-200 bg-blue-50 text-blue-700";
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700">
-          {method.type || "bank"}
-        </span>
-        <h4 className="text-sm text-slate-900">{method.title || "Payment Method"}</h4>
-      </div>
-      {details.length > 0 ? (
-        <div className="mt-2 grid gap-1 text-xs text-slate-700 md:grid-cols-2">
-          {details.map((detail) => (
-            <p key={detail}>{detail}</p>
-          ))}
-        </div>
-      ) : null}
-      {method.instructions ? (
-        <p className="mt-2 whitespace-pre-wrap text-xs text-slate-600">{method.instructions}</p>
-      ) : null}
-    </div>
+    <p className={`inline-flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-sm ${classes}`}>
+      {icon}
+      {text}
+    </p>
   );
 }

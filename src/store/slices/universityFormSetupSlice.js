@@ -123,11 +123,19 @@ export const fetchUniversityFormSetup = createAsyncThunk(
         ? programsRes.data.programs.map(normalizeProgram).filter((program) => program.name)
         : [];
       const applicationFee = String(Number(settingsRes?.data?.profile?.applicationFee || 0));
+      const minimumFscPercentage = String(
+        Number(settingsRes?.data?.profile?.minimumFscPercentage || 0),
+      );
+      const minimumMatricPercentage = String(
+        Number(settingsRes?.data?.profile?.minimumMatricPercentage || 0),
+      );
 
       return {
         fields: fields.length > 0 ? fields : getDefaultFields(),
         programs,
         applicationFee,
+        minimumFscPercentage,
+        minimumMatricPercentage,
         savedAt: formRes?.data?.updatedAt || "",
       };
     } catch (error) {
@@ -139,7 +147,13 @@ export const fetchUniversityFormSetup = createAsyncThunk(
 export const saveUniversityFormSetup = createAsyncThunk(
   "universityFormSetup/saveUniversityFormSetup",
   async (
-    { fields = [], programs = [], applicationFee = "0" } = {},
+    {
+      fields = [],
+      programs = [],
+      applicationFee = "0",
+      minimumFscPercentage = "0",
+      minimumMatricPercentage = "0",
+    } = {},
     { rejectWithValue },
   ) => {
     try {
@@ -150,11 +164,17 @@ export const saveUniversityFormSetup = createAsyncThunk(
 
       const sanitizedPrograms = sanitizePrograms(programs);
       const numericFee = Number(applicationFee || 0);
+      const numericMinimumFscPercentage = Number(minimumFscPercentage || 0);
+      const numericMinimumMatricPercentage = Number(minimumMatricPercentage || 0);
 
       const [formRes, programsRes, settingsRes] = await Promise.all([
         api.put("/universities/me/form", { fields: sanitizedFields }),
         api.put("/universities/me/programs", { programs: sanitizedPrograms }),
-        api.put("/universities/me/settings", { applicationFee: numericFee }),
+        api.put("/universities/me/settings", {
+          applicationFee: numericFee,
+          minimumFscPercentage: numericMinimumFscPercentage,
+          minimumMatricPercentage: numericMinimumMatricPercentage,
+        }),
       ]);
 
       const nextFields = Array.isArray(formRes?.data?.form?.fields)
@@ -168,6 +188,17 @@ export const saveUniversityFormSetup = createAsyncThunk(
         fields: nextFields.length > 0 ? nextFields : getDefaultFields(),
         programs: nextPrograms,
         applicationFee: String(Number(settingsRes?.data?.profile?.applicationFee ?? numericFee)),
+        minimumFscPercentage: String(
+          Number(
+            settingsRes?.data?.profile?.minimumFscPercentage ?? numericMinimumFscPercentage,
+          ),
+        ),
+        minimumMatricPercentage: String(
+          Number(
+            settingsRes?.data?.profile?.minimumMatricPercentage ??
+              numericMinimumMatricPercentage,
+          ),
+        ),
         savedAt: formRes?.data?.form?.updatedAt || new Date().toISOString(),
       };
     } catch (error) {
@@ -206,6 +237,8 @@ const universityFormSetupSlice = createSlice({
     fields: getDefaultFields(),
     programs: [],
     applicationFee: "0",
+    minimumFscPercentage: "0",
+    minimumMatricPercentage: "0",
     savedAt: "",
     loading: false,
     saving: false,
@@ -231,6 +264,8 @@ const universityFormSetupSlice = createSlice({
         state.fields = action.payload.fields;
         state.programs = action.payload.programs;
         state.applicationFee = action.payload.applicationFee;
+        state.minimumFscPercentage = action.payload.minimumFscPercentage;
+        state.minimumMatricPercentage = action.payload.minimumMatricPercentage;
         state.savedAt = action.payload.savedAt;
       })
       .addCase(fetchUniversityFormSetup.rejected, (state, action) => {
@@ -247,8 +282,10 @@ const universityFormSetupSlice = createSlice({
         state.fields = action.payload.fields;
         state.programs = action.payload.programs;
         state.applicationFee = action.payload.applicationFee;
+        state.minimumFscPercentage = action.payload.minimumFscPercentage;
+        state.minimumMatricPercentage = action.payload.minimumMatricPercentage;
         state.savedAt = action.payload.savedAt;
-        state.saveSuccessMessage = "Form fields, programs, and application fee saved successfully.";
+        state.saveSuccessMessage = "Form fields, programs, application fee, and eligibility criteria saved successfully.";
       })
       .addCase(saveUniversityFormSetup.rejected, (state, action) => {
         state.saving = false;

@@ -34,6 +34,8 @@ function FormConfiguration() {
     fields: storedFields,
     programs: storedPrograms,
     applicationFee: storedApplicationFee,
+    minimumFscPercentage: storedMinimumFscPercentage,
+    minimumMatricPercentage: storedMinimumMatricPercentage,
     loading: isLoading,
     saving: isSaving,
     error: loadError,
@@ -46,6 +48,8 @@ function FormConfiguration() {
 
   const [programs, setPrograms] = useState([]);
   const [applicationFee, setApplicationFee] = useState("0");
+  const [minimumFscPercentage, setMinimumFscPercentage] = useState("0");
+  const [minimumMatricPercentage, setMinimumMatricPercentage] = useState("0");
   const [showAddProgram, setShowAddProgram] = useState(false);
   const [editingProgram, setEditingProgram] = useState(null);
   const [isEditingConfig, setIsEditingConfig] = useState(false);
@@ -68,6 +72,14 @@ function FormConfiguration() {
     setApplicationFee(String(storedApplicationFee ?? "0"));
   }, [storedApplicationFee]);
 
+  useEffect(() => {
+    setMinimumFscPercentage(String(storedMinimumFscPercentage ?? "0"));
+  }, [storedMinimumFscPercentage]);
+
+  useEffect(() => {
+    setMinimumMatricPercentage(String(storedMinimumMatricPercentage ?? "0"));
+  }, [storedMinimumMatricPercentage]);
+
   const resetMessages = () => {
     setLocalError("");
     dispatch(clearUniversityFormSetupMessages());
@@ -79,8 +91,10 @@ function FormConfiguration() {
       requiredFields: fields.filter((field) => field.required).length,
       totalPrograms: programs.length,
       applicationFee: Number(applicationFee || 0),
+      minimumFscPercentage: Number(minimumFscPercentage || 0),
+      minimumMatricPercentage: Number(minimumMatricPercentage || 0),
     }),
-    [fields, programs, applicationFee],
+    [fields, programs, applicationFee, minimumFscPercentage, minimumMatricPercentage],
   );
 
   const handleAddField = (field) => {
@@ -136,6 +150,19 @@ function FormConfiguration() {
       setLocalError("Application fee must be a valid non-negative number.");
       return;
     }
+    const minimumFscNumber = Number(minimumFscPercentage);
+    const minimumMatricNumber = Number(minimumMatricPercentage);
+    if (
+      !Number.isFinite(minimumFscNumber) ||
+      minimumFscNumber < 0 ||
+      minimumFscNumber > 100 ||
+      !Number.isFinite(minimumMatricNumber) ||
+      minimumMatricNumber < 0 ||
+      minimumMatricNumber > 100
+    ) {
+      setLocalError("Eligibility percentages must be between 0 and 100.");
+      return;
+    }
 
     try {
       await dispatch(
@@ -143,6 +170,8 @@ function FormConfiguration() {
           fields,
           programs,
           applicationFee,
+          minimumFscPercentage,
+          minimumMatricPercentage,
         }),
       ).unwrap();
       setIsEditingConfig(false);
@@ -155,6 +184,8 @@ function FormConfiguration() {
     setFields(Array.isArray(storedFields) ? storedFields : []);
     setPrograms(Array.isArray(storedPrograms) ? storedPrograms : []);
     setApplicationFee(String(storedApplicationFee ?? "0"));
+    setMinimumFscPercentage(String(storedMinimumFscPercentage ?? "0"));
+    setMinimumMatricPercentage(String(storedMinimumMatricPercentage ?? "0"));
     setShowAddField(false);
     setShowAddProgram(false);
     setEditingProgram(null);
@@ -209,11 +240,15 @@ function FormConfiguration() {
         )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Form Fields" value={stats.totalFields} />
         <StatCard label="Required Fields" value={stats.requiredFields} />
         <StatCard label="Programs" value={stats.totalPrograms} />
         <StatCard label="Fee PKR " value={`${stats.applicationFee.toLocaleString()}`}/>
+        <StatCard
+          label="Eligibility"
+          value={`FSC ${stats.minimumFscPercentage}% | Matric ${stats.minimumMatricPercentage}%`}
+        />
       </div>
 
       {error ? (
@@ -279,6 +314,48 @@ function FormConfiguration() {
               />
               <p className="mt-1 text-xs text-slate-500">
                 This fee is shown on student recommendations and payment page.
+              </p>
+            </div>
+            <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <h4 className="mb-3 text-sm font-medium text-slate-900">Eligibility Criteria</h4>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm text-slate-700">Minimum FSC (%)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    value={minimumFscPercentage}
+                    onChange={(event) => {
+                      resetMessages();
+                      setMinimumFscPercentage(event.target.value);
+                    }}
+                    disabled={!isEditingConfig}
+                    placeholder="e.g., 60"
+                    className="uaams-disabled-control w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm text-slate-700">Minimum Matric (%)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    value={minimumMatricPercentage}
+                    onChange={(event) => {
+                      resetMessages();
+                      setMinimumMatricPercentage(event.target.value);
+                    }}
+                    disabled={!isEditingConfig}
+                    placeholder="e.g., 50"
+                    className="uaams-disabled-control w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                These criteria apply to all programs for this university.
               </p>
             </div>
             <div className="space-y-3">
@@ -394,7 +471,7 @@ function ProgramItem({ program, onEdit, onDelete, disabled = false }) {
       <div>
         <div className="text-slate-900 mb-1">{program.name}</div>
         <div className="text-slate-600 text-sm">
-          {program.seats} seats | {program.feeRange || "Fee range not set"} | Min Aggregate: {program.requiredAggregate}%
+          {program.seats} seats | {program.feeRange || "Fee range not set"}
         </div>
         <div className="text-slate-500 text-xs">
           Deadline: {program.deadlineDate || "Not announced"}
@@ -535,7 +612,6 @@ function ProgramModal({ program, onSave, onClose }) {
       name: "",
       seats: "",
       feeRange: "",
-      requiredAggregate: "",
       deadlineDate: "",
       ...initialProgram,
       isAdmissionOpen: initialProgram.isAdmissionOpen !== false,
@@ -548,7 +624,6 @@ function ProgramModal({ program, onSave, onClose }) {
     setFormError("");
 
     const seats = Number(formData.seats);
-    const requiredAggregate = Number(formData.requiredAggregate);
     const deadlineDate = String(formData.deadlineDate || "").trim();
     const today = getTodayInputValue();
 
@@ -567,11 +642,6 @@ function ProgramModal({ program, onSave, onClose }) {
       return;
     }
 
-    if (!Number.isFinite(requiredAggregate) || requiredAggregate < 0 || requiredAggregate > 100) {
-      setFormError("Required aggregate must be between 0 and 100.");
-      return;
-    }
-
     if (formData.isAdmissionOpen !== false && !deadlineDate) {
       setFormError("Admission-open programs must have an application deadline.");
       return;
@@ -585,7 +655,7 @@ function ProgramModal({ program, onSave, onClose }) {
     onSave({
       ...formData,
       seats,
-      requiredAggregate,
+      requiredAggregate: Number(formData.requiredAggregate || 0),
       feeRange: normalizeFeeRange(formData.feeRange),
       deadlineDate,
     });
@@ -634,20 +704,6 @@ function ProgramModal({ program, onSave, onClose }) {
                 setFormData({ ...formData, feeRange: normalizeFeeRange(event.target.value) })
               }
               placeholder="e.g., PKR 400,000 - 500,000"
-              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-slate-700 mb-2 text-sm">Required Aggregate (%)</label>
-            <input
-              type="number"
-              value={formData.requiredAggregate}
-              onChange={(event) => setFormData({ ...formData, requiredAggregate: event.target.value })}
-              placeholder="e.g., 75"
-              min="0"
-              max="100"
-              step="0.01"
               className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               required
             />

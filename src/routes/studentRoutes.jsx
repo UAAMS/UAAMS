@@ -22,6 +22,10 @@ const StudentApplicationPaymentPage = lazyNamed(
   () => import("../pages/student/StudentApplicationPaymentPage"),
   "StudentApplicationPaymentPage",
 );
+const StudentPaymentSuccessPage = lazyNamed(
+  () => import("../pages/student/StudentPaymentSuccessPage"),
+  "StudentPaymentSuccessPage",
+);
 
 export const studentNavItems = [
   { to: "/student", label: "Overview", icon: Home, end: true },
@@ -30,7 +34,7 @@ export const studentNavItems = [
     to: "/student/recommendations",
     label: "Recommendations",
     icon: TrendingUp,
-    activePaths: ["/student/apply"],
+    activePaths: ["/student/apply", "/student/payment"],
   },
   { to: "/student/applications", label: "Applications", icon: FileText },
   { to: "/student/merit-lists", label: "Merit Lists", icon: Award },
@@ -43,6 +47,8 @@ export const studentRoutePages = [
   { path: "profile", element: <StudentProfilePage /> },
   { path: "recommendations", element: <UniversityRecommendations /> },
   { path: "apply/:universityId", element: <StudentApplicationFormPage /> },
+  { path: "payment-success/:applicationId", element: <StudentPaymentSuccessPage /> },
+  { path: "payment/:applicationId", element: <StudentApplicationPaymentPage /> },
   { path: "apply/:universityId/payment/:applicationId", element: <StudentApplicationPaymentPage /> },
   { path: "applications", element: <MyApplications /> },
   { path: "merit-lists", element: <MeritLists /> },

@@ -216,6 +216,8 @@ const defineModels = (sequelize) => {
       seats: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
       feeRange: { type: DataTypes.STRING(180), allowNull: false, defaultValue: "" },
       requiredAggregate: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
+      minimumFscPercentage: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
+      minimumMatricPercentage: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
       deadlineDate: { type: DataTypes.DATE, allowNull: true },
       isAdmissionOpen: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     },

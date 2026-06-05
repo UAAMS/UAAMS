@@ -42,6 +42,12 @@ const env = {
   compressionEnabled: String(process.env.COMPRESSION_ENABLED || "true").toLowerCase() === "true",
   apiCacheTtlMs: Number(process.env.API_CACHE_TTL_MS || 60 * 1000),
   recommendationsCacheTtlMs: Number(process.env.RECOMMENDATIONS_CACHE_TTL_MS || 5 * 60 * 1000),
+  recommendationModelUrl:
+    process.env.RECOMMENDATION_MODEL_URL || "http://localhost:4000",
+  recommendationModelTimeoutMs: Number(process.env.RECOMMENDATION_MODEL_TIMEOUT_MS || 8000),
+  stripeSecretKey: process.env.STRIPE_SECRET_KEY || "",
+  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || process.env.STRIPE_WEB_HOOK_SECRET || "",
+  stripeCurrency: String(process.env.STRIPE_CURRENCY || "pkr").toLowerCase(),
   redisUrl: process.env.REDIS_URL || "",
   redisEnabled:
     String(

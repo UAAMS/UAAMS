@@ -76,6 +76,8 @@ const universityProfileSchema = new mongoose.Schema(
     representativeProfilePicture: { type: String, default: "" },
     logo: { type: String, default: "" },
     applicationFee: { type: Number, default: 0, min: 0 },
+    minimumFscPercentage: { type: Number, default: 0, min: 0, max: 100 },
+    minimumMatricPercentage: { type: Number, default: 0, min: 0, max: 100 },
     applicationStartDate: { type: Date, default: null },
     applicationEndDate: { type: Date, default: null },
     acceptApplicationsThroughUaams: { type: Boolean, default: true },

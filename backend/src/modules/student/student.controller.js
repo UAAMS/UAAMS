@@ -18,6 +18,7 @@ const {
   getMyProfile,
   updateMyProfile,
   getRecommendations,
+  getModelRecommendations,
 } = require("../../controllers/student.controller");
 
 const ensureObjectId = (id, message = "Invalid resource id.") => {
@@ -705,6 +706,7 @@ module.exports = {
   getMyProfile,
   updateMyProfile,
   getRecommendations,
+  getModelRecommendations,
   getMyDashboard,
   listMyAnnouncements,
   listMyMeritLists,
