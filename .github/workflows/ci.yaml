@@ -1,0 +1,56 @@
+name: Backend CI
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+jobs:
+  build-and-push:
+    name: Build and push backend image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v6
+
+      - name: Check Docker Hub secrets
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ]; then
+            echo "::error::DOCKERHUB_USERNAME is empty or unavailable to this workflow."
+            exit 1
+          fi
+
+          if [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "::error::DOCKERHUB_TOKEN is empty or unavailable to this workflow."
+            exit 1
+          fi
+
+          echo "Docker Hub credentials are available."
+
+      - name: Prepare Docker image tag
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          DOCKERHUB_USERNAME="$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '\r\n')"
+          echo "::add-mask::$DOCKERHUB_USERNAME"
+          echo "DOCKERHUB_USERNAME=$DOCKERHUB_USERNAME" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=$DOCKERHUB_USERNAME/uaams:latest" >> "$GITHUB_ENV"
+
+      - name: Login to Docker Hub
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          DOCKERHUB_TOKEN="$(printf '%s' "$DOCKERHUB_TOKEN" | tr -d '\r\n')"
+          echo "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
+
+      - name: Build Docker image
+        run: docker image build -t "$IMAGE_TAG" ./backend
+
+      - name: Push Docker image
+        run: docker push "$IMAGE_TAG"

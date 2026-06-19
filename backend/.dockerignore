@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log*
+.env
+.env.*
+**/.git
+.gitignore
+**/.vscode
+Dockerfile
+.dockerignore
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+uploads
