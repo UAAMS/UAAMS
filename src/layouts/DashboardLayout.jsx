@@ -540,7 +540,9 @@ export const DashboardLayout = ({ title, navItems, theme = "emerald" }) => {
                     size="sm"
                     className="bg-white/80"
                   />
-                  {currentUser?.name || "User"}
+                  {currentUser?.role === "student" 
+                    ? (studentProfileState.profile?.fullName || currentUser?.name || "User")
+                    : (currentUser?.name || "User")}
                 </div>
                 
               </div>
