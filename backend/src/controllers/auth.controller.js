@@ -146,10 +146,11 @@ const buildAuthUser = async (user) => {
 
   if (user.role === ROLES.STUDENT) {
     const profile = await StudentProfile.findOne({ user: user._id })
-      .select("profilePicture")
+      .select("profilePicture fullName")
       .lean();
     return {
       ...safeUser,
+      name: profile?.fullName || safeUser.name,
       profilePicture: profile?.profilePicture || safeUser.profilePicture || "",
     };
   }

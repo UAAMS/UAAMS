@@ -237,8 +237,6 @@ function MeritListCard({ meritList, searchTerm, onView, onDownload }) {
               <HighlightText text={meritList.program} query={searchTerm} />
             </h3>
             <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-              <span>{meritList.session}</span>
-              <span>|</span>
               <span>Merit List {meritList.listNumber}</span>
             </div>
           </div>
@@ -316,7 +314,7 @@ function MeritListDetailModal({ meritList, onClose, onDownload }) {
               </div>
               <h2 className="text-slate-900 mb-1">{meritList.program}</h2>
               <p className="text-slate-600 text-sm">
-                {meritList.session} | Published {meritList.publishedDate}
+                Published {meritList.publishedDate}
               </p>
             </div>
             <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">

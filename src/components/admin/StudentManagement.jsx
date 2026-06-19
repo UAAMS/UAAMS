@@ -146,9 +146,6 @@ function StudentManagement() {
                   <h3 className="text-slate-900"><HighlightText text={student.name} query={searchTerm} /></h3>
                   <p className="text-sm text-slate-600"><HighlightText text={student.email} query={searchTerm} /></p>
                   <p className="text-xs text-slate-500 mt-1">
-                    Phone: <HighlightText text={student.phone || "N/A"} query={searchTerm} /> | City: <HighlightText text={student.city || "N/A"} query={searchTerm} />
-                  </p>
-                  <p className="text-xs text-slate-500 mt-1">
                     Registered: {formatDate(student.createdAt)} | Applications:{" "}
                     {student.applicationStats?.total || 0}
                   </p>

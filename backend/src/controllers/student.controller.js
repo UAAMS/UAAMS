@@ -412,6 +412,11 @@ const updateMyProfile = asyncHandler(async (req, res) => {
     { new: true, upsert: true, runValidators: true }
   );
 
+  // If fullName is updated, also update the User model's name for consistency
+  if (Object.prototype.hasOwnProperty.call(payload, "fullName") && payload.fullName) {
+    await User.findByIdAndUpdate(req.user._id, { name: payload.fullName }, { runValidators: true });
+  }
+
   return res.status(200).json({
     success: true,
     message: "Student profile updated successfully.",
