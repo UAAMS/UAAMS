@@ -34,7 +34,7 @@ const initializeDatabase = async () => {
   });
 
   try {
-    console.log(`🔌 Connecting to PostgreSQL at ${pgHost}:${pgPort}...`);
+    console.log(`🔌 Connectingxxxxxxx to PostgreSQL at ${pgHost}:${pgPort}...`);
     await adminClient.connect();
     console.log("✅ Connected to PostgreSQL");
 
