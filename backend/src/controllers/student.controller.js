@@ -648,7 +648,7 @@ const getModelRecommendations = asyncHandler(async (req, res) => {
 
   try {
     const modelResponse = await fetch(
-      `${String(env.recommendationModelUrl).replace(/\/$/, "")}/recommend`,
+      `https://uaams-recommendation-model-2.onrender.com/recommend`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
