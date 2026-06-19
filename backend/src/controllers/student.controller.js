@@ -688,7 +688,7 @@ const getModelRecommendations = asyncHandler(async (req, res) => {
       error?.name === "AbortError"
         ? "Recommendation model request timed out."
         : "Recommendation model service is not available. Start the Flask model server on port 4000.";
-    throw new ApiError(503, message);
+    throw new ApiError(503, error);
   } finally {
     clearTimeout(timeout);
   }
